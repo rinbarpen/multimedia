@@ -66,6 +66,7 @@ bool FFmpegPlayer::close() {
   need2seek_ = need2pause_ = false;
   resampler_.release();
   converter_.release();
+  short_name_ = url_ = "";
 
   state_ = INITED;
   return true;
@@ -188,7 +189,8 @@ bool FFmpegPlayer::open(const std::string &url) {
     goto err;
   }
 
-  is_streaming_ = false;
+  is_streaming_ = isStreamUrl(url_);
+  url_ = url;
   return true;
 err:
   this->close();
@@ -209,8 +211,13 @@ bool FFmpegPlayer::openDevice(
     ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "Not found the target device");
     goto err;
   }
+  
+  AVDictionary *opt = nullptr;
+  av_dict_set_int(&srcOpt, "framerate",
+    std::lround(av_q2d(config_.video.frame_rate)), AV_DICT_MATCH_CASE);
+  av_dict_set_int(&srcOpt, "draw_mouse", 1, AV_DICT_MATCH_CASE);
 
-  r = avformat_open_input(&format_context_, url.c_str(), pInputFormat, nullptr);
+  r = avformat_open_input(&format_context_, url.c_str(), pInputFormat, opt);
   if (r < 0) {
     FFMPEG_LOG_ERROR("Couldn't open file");
     goto err;
@@ -320,11 +327,38 @@ bool FFmpegPlayer::openDevice(
     goto err;
   }
 
+  url_ = url;
+  short_name_ = shortName;
   is_streaming_ = true;
   return true;
 err:
   this->close();
   return false;
+}
+
+bool FFmpegPlayer::play() {
+  read_thread_.dispatch(&FFmpegPlayer::onReadFrame, this);
+  if (config_.common.enable_audio)
+    audio_decode_thread_.dispatch(&FFmpegPlayer::onAudioDecode, this);
+  if (config_.common.enable_video)
+    video_decode_thread_.dispatch(&FFmpegPlayer::onVideoDecode, this);
+
+  return true;
+}
+
+bool FFmpegPlayer::replay() {
+  need2pause_ = false;
+  return true;
+}
+
+bool FFmpegPlayer::pause() {
+  need2pause_ = true;
+  return true;
+}
+
+void FFmpegPlayer::stop() {
+  if (isPlaying()) pause();
+  close();
 }
 
 void FFmpegPlayer::seek(int64_t pos) {
@@ -356,6 +390,19 @@ void FFmpegPlayer::onReadFrame()
   int r;
   while (true) {
     if (is_aborted_) return;
+    
+    if (need2pause_) {
+      if (is_streaming_) {
+        av_read_pause();
+      }
+      state_ = PAUSED;
+    }
+    else {
+      if (is_streaming_) {
+        av_read_play();
+      }
+      state_ = PLAYING; 
+    }
 
     if (need2seek_) {
       int64_t seekTarget = seek_pos_;
@@ -676,7 +723,14 @@ void FFmpegPlayer::doEventLoop()
         exit(0);
       case SDL_KEYDOWN:
         switch (event.key.keysym.sym) {
-        //case SDLK_SPACE: this->onPauseToggle(); break;
+        case SDLK_SPACE: {
+          {
+            if (isPaused())
+              replay();
+            else
+              pause();
+            break;
+          }
         }
         break;
       }

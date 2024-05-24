@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 
+#include "multimedia/common/StringUtil.hpp"
 #include "multimedia/FFmpegUtil.hpp"
 
 struct PlayerConfig
@@ -37,6 +38,7 @@ struct PlayerConfig
     float speed{1.0f};
     bool loop{false};
     bool auto_fit{true};
+    bool save_while_playing{false};  // 只面对播放网络流和设备流有效
   }common;
 
   bool debug_on{true};
@@ -62,6 +64,7 @@ public:
   virtual bool open(const std::string& url) = 0;
   virtual bool openDevice(const std::string& url, const std::string &shortName) = 0;
   virtual bool play() = 0;
+  virtual bool replay() = 0;
   virtual bool pause() = 0;
   virtual bool close() = 0;
   virtual void stop() = 0;
@@ -95,9 +98,21 @@ public:
   bool isNetworkStream() const { return is_streaming_; }
 
 protected:
+  static bool isStreamUrl(const std::string& url) const { 
+    if (start_with(url, "rtsp") || start_with(url, "rtsps")
+        || start_with(url, "rtmp") || start_with(url, "rtmps")
+        || start_with(url, "hls")   || start_with(url, "http")
+        || start_with(url, "https") || start_with(url, "ws")
+        || start_with(url, "wss")) {
+      return true;
+    }
+    return false;
+  }
+
+protected:
   PlayerState state_{NONE};
   std::string url_;
-  std::string shortName_;
+  std::string short_name_;
   bool is_streaming_{false};
   PlayerConfig config_;
 };

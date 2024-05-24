@@ -34,6 +34,7 @@ public:
   bool open(const std::string& url) override;
   bool openDevice(const std::string &url, const std::string& shortName) override;
   bool play() override;
+  bool replay() override;
   bool pause() override;
   void stop() override;
   bool close() override;
