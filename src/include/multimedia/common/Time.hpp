@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <thread>
 #include <string>
 #include <sstream>
 
@@ -11,7 +12,12 @@ public:
   using BaseTimePoint = std::chrono::time_point<BaseClockType>;
   using BaseTimeType = std::chrono::nanoseconds;
 
-  static BaseTimePoint now() { return std::chrono::steady_clock::now(); }
+  static int64_t now() {
+    return BaseClockType::now().time_since_epoch().count();
+  }
+  static void sleep(int64_t time) { 
+    std::this_thread::sleep_for(BaseTimeType(time));
+  }
   template <typename TimeType>
   static TimeType elapse(BaseTimePoint begin, BaseTimePoint end = now()) {
     return std::chrono::duration_cast<TimeType>(end - begin);
@@ -33,7 +39,24 @@ public:
     std::strftime(buf, sizeof(buf), fmt, &tm);
     return std::string{buf};
   }
-
-
 };
 
+class Clock
+{
+public:
+  static void start() { 
+    last_tp_ = Time::now();
+  }
+  static int64_t elapse() { 
+    auto curr_tp = Time::now();
+    auto elapsed = curr_tp - last_tp_;
+    last_tp_ = curr_tp;
+    return elapsed;
+  }
+  static void sleep(int64_t ns) {
+    std::this_thread::sleep_for(std::chrono::nanoseconds(ns));
+  }
+
+private:
+  static inline int64_t last_tp_{-1};
+};

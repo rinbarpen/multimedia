@@ -13,16 +13,16 @@ public:
 
   bool push(const T& x) {
     Mutex::ulock locker(cond_mutex_);
-    cond_.wait([this](){
-      return data_.size() < max_size_ / 5;
+    cond_.wait(locker, [this]() {
+      return data_.size() <= max_size_ / 2;
     });
     data_.push_back(x);
     return true;
   }
   bool push(T&& x) {
     Mutex::ulock locker(cond_mutex_);
-    cond_.wait([this](){
-      return data_.size() < max_size_ / 5;
+    cond_.wait(locker, [this]() {
+      return data_.size() <= max_size_ / 2;
     });
     data_.push_back(x);
     return true;

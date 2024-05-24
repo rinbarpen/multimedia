@@ -7,6 +7,10 @@
 class ConditionVariable
 {
 public:
+
+  void bind(std::mutex &mtx) { mutex_ = mtx;
+  }
+
   template <typename Fn>
   void wait(Fn &&fn) {
     Mutex::ulock locker(mutex_);

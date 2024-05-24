@@ -9,7 +9,7 @@ Resampler::~Resampler() {
 }
 
 bool Resampler::init(Info in, Info out) {
-  if (!isDirty(out) || !swr_context_) {
+  if (!isDirty(out) && !swr_context_) {
     return true;
   }
 
@@ -48,7 +48,20 @@ int Resampler::resample(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
       outCount, (AVSampleFormat) pOutFrame->format, 1);
   if (outSize < 0) return false;
 
-  uint32_t size = 500 * 1000;
+  if (pOutFrame->nb_samples != pInFrame->nb_samples) {
+    int sample_delta = (pOutFrame->nb_samples - pInFrame->nb_samples)
+                       * pOutFrame->sample_rate / pInFrame->sample_rate;
+    int compensation_distance =
+      pOutFrame->nb_samples * pOutFrame->sample_rate / pInFrame->sample_rate;
+    // swr_set_compensation
+    if (swr_set_compensation(swr_context_, sample_delta, compensation_distance)
+        < 0) {
+      //av_log(NULL, AV_LOG_ERROR, "swr_set_compensation() failed\n");
+      return -1;
+    }
+  }
+
+  uint32_t size = 500 * 1000;  // TODO
   av_fast_malloc(&pOutFrame->extended_data[0], &size, outSize);
   if (!pOutFrame->extended_data[0]) return false;
 

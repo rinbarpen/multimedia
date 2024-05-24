@@ -7,6 +7,7 @@
 #include "multimedia/AVThread.hpp"
 #include "multimedia/AvQueue.hpp"
 #include "multimedia/Player.hpp"
+#include "multimedia/common/ConditionVariable.hpp"
 
 #include <SDL2/SDL.h>
 
@@ -37,12 +38,23 @@ public:
   void stop() override;
   bool close() override;
   void seek(int64_t pos) override;
-  int64_t getDuration() const override { return format_context_->duration; }
-  int64_t getPosition() const override { return seek_pos_; }
+  int64_t getTotalTime() const override { return format_context_->duration; }
   double getCurrentTime() const override { return audio_clock_.get(); }
+
+protected:
+  virtual void doEventLoop();
+  virtual void doVideoDisplay();
+  virtual void doVideoDelay();
 
 private:
   bool check(PlayerConfig &config) const;
+
+  void onReadFrame();
+  void onAudioDecode();
+  void onVideoDecode();
+
+  int decodeAudioFrame();
+  int decodeVideoFrame();
 
   bool openVideo();
   bool openAudio();
@@ -54,6 +66,8 @@ private:
 
   static void sdlAudioCallback(void *ptr, Uint8 *stream, int size);
   void sdlAudioHandle(Uint8 *stream, int size);
+
+  static SDL_PixelFormatEnum cvtFFPixFmtToSDLPixFmt(AVPixelFormat format);
 
 private:
   AVFormatContext *format_context_;
@@ -75,13 +89,17 @@ private:
   AVPacketQueue audio_packet_queue_;
 
   int64_t seek_pos_;
+  ConditionVariable continue_read_cond_;
 
+  int64_t last_vframe_pts_{0};
+  int64_t last_video_duration_pts_{0};
   AVClock video_clock_;
   AVClock audio_clock_;
 
   bool need2pause_{false};
   bool need2seek_{false};
   bool is_aborted_{false};
+  bool is_eof_{false};
 
   AVReadThread read_thread_;
   AVVideoDecodeThread video_decode_thread_;
@@ -97,6 +115,15 @@ private:
   SDL_Window *window_;
   SDL_Renderer *renderer_;
   SDL_AudioDeviceID device_id_;
+  struct AudioParams
+  {
+    int fmt;
+    int freq;
+    uint64_t channel_layout;
+    int channels;
+    int frame_size;
+    int bytes_per_sec;
+  } audio_hw_params;
 
   std::unique_ptr<AudioBuffer> audio_buffer_;
 

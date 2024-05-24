@@ -11,12 +11,15 @@ struct PlayerConfig
     int width{1280}, height{720};
     AVRational frame_rate{25, 1};
 
+    AVPixelFormat format;
+
     int xleft{0};
     int ytop{0};
   }video;
   struct audio{
     int sample_rate;
     int channels;
+    AVSampleFormat format;
 
     float volume{1.0f};
     bool is_muted{false};
@@ -33,6 +36,7 @@ struct PlayerConfig
 
     float speed{1.0f};
     bool loop{false};
+    bool auto_fit{true};
   }common;
 
   bool debug_on{true};

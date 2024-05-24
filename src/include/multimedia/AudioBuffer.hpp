@@ -1,30 +1,40 @@
 #pragma once
 
 #include <cstdint>
+#include <cassert>
 #include <memory>
-
 
 class AudioBuffer
 {
 public:
-  AudioBuffer(uint32_t capacity) : capacity_(capacity) {
+  AudioBuffer(uint32_t capacity)
+    : capacity_(capacity) {
     buf_.reset(new uint8_t[capacity_], std::default_delete<uint8_t[]>());
     read_offset_ = 0;
     write_offset_ = 0;
   }
   ~AudioBuffer() = default;
 
-  void fill(uint8_t *data, uint32_t size) {
-    uint32_t free_space = writableBytes();
-    if (size > free_space) {
-      size = free_space;
+  void fill(const uint8_t *data, uint32_t size) {
+    assert(data);
+    uint32_t freeSpace = writableBytes();
+    if (size > freeSpace) {
+      size = freeSpace;
     }
-    memcpy(data, buf_.get() + read_offset_, size);
-    read_offset_ += size;
-    if (read_offset_ == write_offset_) {
-      clear();
-    }
+    memcpy(buf_.get() + write_offset_, data, size);
+    write_offset_ += size;
   }
+  void extract(uint8_t* data, uint32_t size) {
+    uint32_t nReadBytes = readableBytes();
+    if (size > nReadBytes) {
+      size = nReadBytes;
+    }
+    if (data)
+      memcpy(data, buf_.get() + read_offset_, size);
+    read_offset_ += size;
+    if (read_offset_ >= write_offset_) clear();
+  }
+
   uint8_t *peek() const {
     return buf_.get() + read_offset_;
   }
