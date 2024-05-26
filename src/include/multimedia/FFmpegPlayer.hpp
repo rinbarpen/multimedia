@@ -54,7 +54,7 @@ private:
   void onAudioDecode();
   void onVideoDecode();
 
-  int decodeAudioFrame();
+  int decodeAudioFrame(AVFramePtr &pOutFrame);
   int decodeVideoFrame();
 
   bool openVideo();
@@ -118,7 +118,7 @@ private:
   SDL_AudioDeviceID device_id_;
   struct AudioParams
   {
-    int fmt;
+    AVSampleFormat fmt;
     int freq;
     uint64_t channel_layout;
     int channels;

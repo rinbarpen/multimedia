@@ -8,6 +8,7 @@ extern "C"
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/time.h>
+#include <libavutil/imgutils.h>
 #include <libpostproc/postprocess.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
@@ -38,14 +39,14 @@ static void init() {
 using AVFramePtr = std::shared_ptr<AVFrame>;
 using AVPacketPtr = std::shared_ptr<AVPacket>;
 
-static AVFramePtr makeFrame() {
+static AVFramePtr makeAVFrame() {
   return AVFramePtr(av_frame_alloc(), [](auto p){
     if (p->extended_data[0]) av_freep(p->extended_data[0]);
     if (p->data) av_freep(p->data[0]);
     av_frame_free(&p);
   });
 }
-static AVPacketPtr makePacket() {
+static AVPacketPtr makeAVPacket() {
   return AVPacketPtr(av_packet_alloc(), [](auto p){
     av_packet_free(&p);
   });

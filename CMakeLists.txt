@@ -121,7 +121,6 @@ target_link_libraries(${PROJECT_NAME}
 target_compile_features(${PROJECT_NAME}
   PUBLIC
   cxx_std_17
-  c_std_11
 )
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -150,7 +149,6 @@ if(ENABLE_STATIC)
   target_compile_features(${PROJECT_LIB_NAME}
     PUBLIC
     cxx_std_17
-    c_std_11
   )
 elseif(ENABLE_SHARED)
   add_library(${PROJECT_LIB_NAME} SHARED ${SRC_FILES})
@@ -172,6 +170,5 @@ elseif(ENABLE_SHARED)
   target_compile_features(${PROJECT_LIB_NAME}
     PUBLIC
     cxx_std_17
-    c_std_11
   )
 endif()

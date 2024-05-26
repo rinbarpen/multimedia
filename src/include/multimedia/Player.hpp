@@ -38,7 +38,7 @@ struct PlayerConfig
     float speed{1.0f};
     bool loop{false};
     bool auto_fit{true};
-    bool save_while_playing{false};  // 只面对播放网络流和设备流有效
+    bool save_while_playing{false};  // 鎾斁璁惧娴佹椂鏈夋晥
   }common;
 
   bool debug_on{true};
@@ -69,8 +69,7 @@ public:
   virtual bool close() = 0;
   virtual void stop() = 0;
   virtual void seek(int64_t pos) = 0;
-  virtual int64_t getDuration() const = 0;
-  virtual int64_t getPosition() const = 0;
+  virtual int64_t getTotalTime() const = 0;
   virtual double getCurrentTime() const = 0;
 
   void setVolume(float volume) {
@@ -98,12 +97,12 @@ public:
   bool isNetworkStream() const { return is_streaming_; }
 
 protected:
-  static bool isStreamUrl(const std::string& url) const { 
-    if (start_with(url, "rtsp") || start_with(url, "rtsps")
-        || start_with(url, "rtmp") || start_with(url, "rtmps")
-        || start_with(url, "hls")   || start_with(url, "http")
-        || start_with(url, "https") || start_with(url, "ws")
-        || start_with(url, "wss")) {
+  static bool isStreamUrl(const std::string& url) {
+    if (string_util::start_with(url, "rtsp") || string_util::start_with(url, "rtsps")
+        || string_util::start_with(url, "rtmp") || string_util::start_with(url, "rtmps")
+        || string_util::start_with(url, "hls")   || string_util::start_with(url, "http")
+        || string_util::start_with(url, "https") || string_util::start_with(url, "ws")
+        || string_util::start_with(url, "wss")) {
       return true;
     }
     return false;
