@@ -9,18 +9,18 @@
 struct PlayerConfig
 {
   struct video{
-    int width{1280}, height{720};
+    int width{-1}, height{-1};
     AVRational frame_rate{25, 1};
 
-    AVPixelFormat format;
+    AVPixelFormat format{AV_PIX_FMT_YUV420P};
 
     int xleft{0};
     int ytop{0};
   }video;
   struct audio{
-    int sample_rate;
-    int channels;
-    AVSampleFormat format;
+    int sample_rate{41000};
+    int channels{2};
+    AVSampleFormat format{AV_SAMPLE_FMT_S16};
 
     float volume{1.0f};
     bool is_muted{false};

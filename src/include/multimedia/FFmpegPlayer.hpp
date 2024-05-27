@@ -55,7 +55,7 @@ private:
   void onVideoDecode();
 
   int decodeAudioFrame(AVFramePtr &pOutFrame);
-  int decodeVideoFrame();
+  bool decodeVideoFrame(AVFramePtr &pOutFrame);
 
   bool openVideo();
   bool openAudio();

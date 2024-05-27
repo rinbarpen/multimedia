@@ -41,8 +41,8 @@ using AVPacketPtr = std::shared_ptr<AVPacket>;
 
 static AVFramePtr makeAVFrame() {
   return AVFramePtr(av_frame_alloc(), [](auto p){
-    if (p->extended_data[0]) av_freep(p->extended_data[0]);
-    if (p->data) av_freep(p->data[0]);
+    // if (p->extended_data) av_freep(p->extended_data);
+    // if (p->data) av_freep(p->data);
     av_frame_free(&p);
   });
 }

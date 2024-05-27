@@ -1,10 +1,10 @@
 #pragma once
 
-//#if (defined(_WIN32) || defined(WIN32))
-//# define __WIN__
-//#elif (defined(__linux__) || defined(__linux))
-//# define __LINUX__
-//#endif
+#if (defined(_WIN32) || defined(WIN32))
+# define __WIN__
+#elif (defined(__linux__) || defined(__linux))
+# define __LINUX__
+#endif
 
 #if (defined(_WIN32) || defined(WIN32)) && !defined(WIN_SOCK_DEFINED)
 # define WIN_SOCK_DEFINED

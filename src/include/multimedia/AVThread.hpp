@@ -16,17 +16,15 @@ class AVThread : public noncopyable
 {
 public:
   AVThread() = default;
-  ~AVThread() {
-    if (thread_.joinable()) {
-      thread_.join();
-    }
-  }
+  ~AVThread() { thread_.join(); }
 
   template <typename Fn, typename... Args>
-  void dispatch(Fn &&fn, Args&&... args) {
+  void dispatch(Fn &&fn, Args &&...args) {
     thread_ = std::thread(std::forward<Fn>(fn), std::forward<Args>(args)...);
   }
-  void join() { thread_.join(); }
+  void join() {
+    if (thread_.joinable()) thread_.join();
+  }
   bool isJoinable() const { return thread_.joinable(); }
   void detach() { thread_.detach(); }
 
@@ -37,13 +35,10 @@ private:
 class AVReadThread : public AVThread
 {
 public:
-  void start(FFmpegPlayer* player) {
+  void start(FFmpegPlayer *player) {}
 
-  }
+  void stop() { join(); }
 
-  void stop() {
-    join();
-  }
 private:
   std::condition_variable cond_;
   Mutex::type mutex_;
@@ -52,23 +47,13 @@ private:
 class AVAudioDecodeThread : public AVThread
 {
 public:
-
-  void start(FFmpegPlayer* player) {
-
-  }
-  void stop() {
-    join();
-  }
+  void start(FFmpegPlayer *player) {}
+  void stop() { join(); }
 };
 
 class AVVideoDecodeThread : public AVThread
 {
 public:
-  void start(FFmpegPlayer* player) {
-
-  }
-  void stop() {
-    join();
-  }
-
+  void start(FFmpegPlayer *player) {}
+  void stop() { join(); }
 };

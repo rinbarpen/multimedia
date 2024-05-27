@@ -63,13 +63,14 @@ int Resampler::resample(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
 
   uint32_t size = 500 * 1000;  // TODO
   av_fast_malloc(&pOutFrame->extended_data[0], &size, outSize);
+  // pOutFrame->extended_data[0] = (uint8_t*)av_malloc(size);
   if (!pOutFrame->extended_data[0]) return false;
 
   int len = swr_convert(swr_context_, &pOutFrame->extended_data[0], outCount,
     (const uint8_t **) pInFrame->extended_data, pInFrame->nb_samples);
 
   if (len <= 0 || len == outCount) {
-    av_freep(&pOutFrame->extended_data[0]);
+    av_freep(pOutFrame->extended_data);
     return 0;
   }
 
