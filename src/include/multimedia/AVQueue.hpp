@@ -40,6 +40,13 @@ public:
     cond_.notify_one();
     return true;
   }
+  T peek() const {
+    Mutex::lock locker(mutex_);
+    if (isEmptyInternal()) {
+      return {};
+    }
+    return data_.front();
+  }
 
   void clear() {
     Mutex::lock locker(mutex_);

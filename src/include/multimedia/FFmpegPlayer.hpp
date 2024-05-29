@@ -5,7 +5,7 @@
 #include "multimedia/Resampler.hpp"
 #include "multimedia/AVClock.hpp"
 #include "multimedia/AVThread.hpp"
-#include "multimedia/AvQueue.hpp"
+#include "multimedia/AVQueue.hpp"
 #include "multimedia/Player.hpp"
 #include "multimedia/common/ConditionVariable.hpp"
 
@@ -65,8 +65,8 @@ private:
   bool openSDL(bool isAudio);
   bool closeSDL(bool isAudio);
 
-  static void sdlAudioCallback(void *ptr, Uint8 *stream, int size);
-  void sdlAudioHandle(Uint8 *stream, int size);
+  static void sdlAudioCallback(void *ptr, Uint8 *stream, int len);
+  void sdlAudioHandle(Uint8 *stream, int len);
 
   static SDL_PixelFormatEnum cvtFFPixFmtToSDLPixFmt(AVPixelFormat format);
 
@@ -124,6 +124,7 @@ private:
     int channels;
     int frame_size;
     int bytes_per_sec;
+    int buf_size;
   } audio_hw_params;
 
   std::unique_ptr<AudioBuffer> audio_buffer_;

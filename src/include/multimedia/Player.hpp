@@ -95,6 +95,10 @@ public:
   bool isPlaying() const { return state_ == PLAYING; }
   bool isPaused() const { return state_ == PAUSED; }
   bool isNetworkStream() const { return is_streaming_; }
+  bool isEnableAudio() const { return config_.common.enable_audio; }
+  bool isEnableVideo() const { return config_.common.enable_video; }
+  bool isEnableSubtitle() const { return config_.common.enable_subtitle; }
+  bool isEnableAudioAndVideo() const { return isEnableAudio() && isEnableVideo(); }
 
 protected:
   static bool isStreamUrl(const std::string& url) {

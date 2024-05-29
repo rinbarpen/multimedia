@@ -12,8 +12,8 @@ public:
   using BaseTimePoint = std::chrono::time_point<BaseClockType>;
   using BaseTimeType = std::chrono::nanoseconds;
 
-  static int64_t now() {
-    return BaseClockType::now().time_since_epoch().count();
+  static BaseTimePoint now() {
+    return BaseClockType::now();
   }
   static void sleep(int64_t time) { 
     std::this_thread::sleep_for(BaseTimeType(time));
@@ -49,14 +49,14 @@ public:
   }
   static int64_t elapse() { 
     auto curr_tp = Time::now();
-    auto elapsed = curr_tp - last_tp_;
+    auto elapsed = Time::elapse<std::chrono::microseconds>(last_tp_, curr_tp).count();
     last_tp_ = curr_tp;
     return elapsed;
   }
-  static void sleep(int64_t ns) {
-    std::this_thread::sleep_for(std::chrono::nanoseconds(ns));
+  static void sleep(int64_t us) {
+    std::this_thread::sleep_for(std::chrono::microseconds(us));
   }
 
 private:
-  static inline int64_t last_tp_{-1};
+  static inline Time::BaseTimePoint last_tp_;
 };

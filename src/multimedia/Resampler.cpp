@@ -1,4 +1,5 @@
 #include "multimedia/Resampler.hpp"
+#include "libavutil/mem.h"
 
 Resampler::Resampler() {}
 Resampler::~Resampler() {
@@ -46,24 +47,11 @@ int Resampler::resample(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
   int outSize =
     av_samples_get_buffer_size(nullptr, pOutFrame->ch_layout.nb_channels,
       outCount, (AVSampleFormat) pOutFrame->format, 1);
-  if (outSize < 0) return false;
+  if (outSize < 0) return -1;
 
-  if (pOutFrame->nb_samples != pInFrame->nb_samples) {
-    int sample_delta = (pOutFrame->nb_samples - pInFrame->nb_samples)
-                       * pOutFrame->sample_rate / pInFrame->sample_rate;
-    int compensation_distance =
-      pOutFrame->nb_samples * pOutFrame->sample_rate / pInFrame->sample_rate;
-    // swr_set_compensation
-    if (swr_set_compensation(swr_context_, sample_delta, compensation_distance)
-        < 0) {
-      //av_log(NULL, AV_LOG_ERROR, "swr_set_compensation() failed\n");
-      return -1;
-    }
-  }
-
-  uint32_t size = 500 * 1000;  // TODO
+  uint32_t size = 500 * 1000;
+  pOutFrame->extended_data[0] = (uint8_t*)av_malloc(size);
   av_fast_malloc(&pOutFrame->extended_data[0], &size, outSize);
-  // pOutFrame->extended_data[0] = (uint8_t*)av_malloc(size);
   if (!pOutFrame->extended_data[0]) return false;
 
   int len = swr_convert(swr_context_, &pOutFrame->extended_data[0], outCount,
