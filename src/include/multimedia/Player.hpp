@@ -36,7 +36,7 @@ struct PlayerConfig
     bool force_idr{false};
 
     float speed{1.0f};
-    bool loop{false};
+    bool loop{true};
     bool auto_fit{true};
     bool save_while_playing{false};  // 播放设备流时有效
   }common;

@@ -84,7 +84,9 @@ message(STATUS "Load SDL")
 file(GLOB
   SRC_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/recorder/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/*.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/recorder/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/common/*.hpp"
 )
 

@@ -5,10 +5,12 @@ extern "C"
 #include <libavcodec/avcodec.h>
 #include <libavdevice/avdevice.h>
 #include <libavfilter/avfilter.h>
+#include <libavformat/avio.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/time.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/mathematics.h>
 #include <libpostproc/postprocess.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>

@@ -41,6 +41,8 @@ public:
   void seek(int64_t pos) override;
   int64_t getTotalTime() const override { return format_context_->duration; }
   double getCurrentTime() const override { return audio_clock_.get(); }
+  bool isFinished() const { return is_eof_; }
+  bool isAborted() const { return is_aborted_; }
 
 protected:
   virtual void doEventLoop();
@@ -64,6 +66,7 @@ private:
 
   bool openSDL(bool isAudio);
   bool closeSDL(bool isAudio);
+  void setWindowSize(int w, int h);
 
   static void sdlAudioCallback(void *ptr, Uint8 *stream, int len);
   void sdlAudioHandle(Uint8 *stream, int len);
@@ -102,9 +105,9 @@ private:
   bool is_aborted_{false};
   bool is_eof_{false};
 
-  AVReadThread read_thread_;
-  AVVideoDecodeThread video_decode_thread_;
-  AVAudioDecodeThread audio_decode_thread_;
+  AVThread read_thread_;
+  AVThread video_decode_thread_;
+  AVThread audio_decode_thread_;
 
   std::unique_ptr<Resampler> resampler_;
   std::unique_ptr<Converter> converter_;
@@ -128,5 +131,4 @@ private:
   } audio_hw_params;
 
   std::unique_ptr<AudioBuffer> audio_buffer_;
-
 };

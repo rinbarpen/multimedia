@@ -1,13 +1,11 @@
-#include "multimedia/FFmpegPlayer.hpp"
-#include "libavutil/avutil.h"
-#include "libavutil/rational.h"
-#include "multimedia/AudioBuffer.hpp"
+#include <chrono>
+
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/Time.hpp"
+#include "multimedia/AudioBuffer.hpp"
+#include "multimedia/FFmpegPlayer.hpp"
+
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_events.h>
-#include <SDL2/SDL_timer.h>
-#include <chrono>
 
 #define AV_SYNC_THRESHOLD_MIN           0.04
 #define AV_SYNC_THRESHOLD_MAX           0.1
@@ -31,10 +29,10 @@ FFmpegPlayer::FFmpegPlayer(AudioDevice audioDevice, VideoDevice videoDevice)
   , video_device_(videoDevice) {
   SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO);
   audio_buffer_.reset(new AudioBuffer(500 * 1000));
+  openVideo();
 }
 FFmpegPlayer::~FFmpegPlayer() {
-  stop();
-  closeAudio();
+  close();
   closeVideo();
   SDL_Quit();
 }
@@ -45,10 +43,15 @@ bool FFmpegPlayer::init(PlayerConfig config) {
   }
   config_ = config;
   state_ = INITED;
+  is_eof_ = is_aborted_ = is_streaming_ = false;
+  need2seek_ = need2pause_ = false;
+  short_name_ = url_ = "";
   return true;
 }
 bool FFmpegPlayer::close() {
   if (isPlaying()) pause();
+
+  if (isEnableAudio()) closeAudio();
 
   is_aborted_ = true;
   read_thread_.stop();
@@ -81,9 +84,9 @@ bool FFmpegPlayer::close() {
 
   is_eof_ = is_aborted_ = is_streaming_ = false;
   need2seek_ = need2pause_ = false;
+  short_name_ = url_ = "";
   resampler_.release();
   converter_.release();
-  short_name_ = url_ = "";
 
   state_ = INITED;
   return true;
@@ -222,7 +225,7 @@ bool FFmpegPlayer::open(const std::string &url) {
   is_streaming_ = isStreamUrl(url_);
   url_ = url;
   if (!openAudio()) config_.common.enable_audio = false;
-  if (!openVideo()) config_.common.enable_video = false;
+  if (isEnableVideo()) setWindowSize(config_.video.width, config_.video.height);
   return true;
 }
 bool FFmpegPlayer::openDevice(
@@ -385,18 +388,20 @@ bool FFmpegPlayer::play() {
     video_decode_thread_.dispatch(&FFmpegPlayer::onVideoDecode, this);
 
   if (isEnableAudio()) {
-    audio_clock_.set((double)audio_stream_->start_time / AV_TIME_BASE);
+    audio_clock_.set(audio_stream_->start_time * av_q2d(audio_stream_->time_base));
     SDL_LockAudioDevice(device_id_);
     SDL_PauseAudioDevice(device_id_, 0);
     SDL_UnlockAudioDevice(device_id_);
   }
   if (isEnableVideo()) {
-    video_clock_.set((double)video_stream_->start_time / AV_TIME_BASE);
+    video_clock_.set(video_stream_->start_time * av_q2d(video_stream_->time_base));
     doVideoDisplay();
   }
-  else
-    while (!is_aborted_ || !is_eof_) std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  
+  else {
+    while (!is_aborted_ || !is_eof_)
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
   return true;
 }
 
@@ -425,8 +430,10 @@ void FFmpegPlayer::stop() {
 }
 
 void FFmpegPlayer::seek(int64_t pos) {
-  if (pos < 0) pos = 0;
-  else if (pos > getTotalTime() * AV_TIME_BASE) pos = getTotalTime() * AV_TIME_BASE;
+  if (pos < 0)
+    pos = 0;
+  else if (pos > getTotalTime() * AV_TIME_BASE)
+    pos = getTotalTime() * AV_TIME_BASE;
   ILOG_INFO_FMT(g_FFmpegPlayerLogger, "Seek to {}s", pos / AV_TIME_BASE);
   seek_pos_ = pos;
   need2seek_ = true;
@@ -489,10 +496,8 @@ void FFmpegPlayer::onReadFrame() {
     }
 
     continue_read_cond_.waitFor(std::chrono::microseconds(10), [&]() {
-      bool audio_is_full =
-        isEnableAudio() && audio_packet_queue_.isFull();
-      bool video_is_full =
-        isEnableVideo() && video_packet_queue_.isFull();
+      bool audio_is_full = isEnableAudio() && audio_packet_queue_.isFull();
+      bool video_is_full = isEnableVideo() && video_packet_queue_.isFull();
       bool is_paused = isPaused();
       if (audio_is_full || video_is_full || is_paused) {
         return false;
@@ -595,7 +600,7 @@ int FFmpegPlayer::decodeAudioFrame(AVFramePtr &pOutFrame) {
   pOutFrame->sample_rate = config_.audio.sample_rate;
   pOutFrame->ch_layout.nb_channels = config_.audio.channels;
   pOutFrame->channel_layout =
-     av_get_default_channel_layout(config_.audio.channels);
+    av_get_default_channel_layout(config_.audio.channels);
   Resampler::Info in = {
     .sample_rate = pFrame->sample_rate,
     .channels = pFrame->ch_layout.nb_channels,
@@ -612,8 +617,8 @@ int FFmpegPlayer::decodeAudioFrame(AVFramePtr &pOutFrame) {
   if (!success) return -1;
 
   auto dataSize = resampler_->resample(pFrame, pOutFrame);
-  audio_clock_.set(
-    pFrame->pts * av_q2d(audio_stream_->time_base) + (double) pFrame->nb_samples / pFrame->sample_rate);
+  audio_clock_.set(pFrame->pts * av_q2d(audio_stream_->time_base)
+                   + (double) pFrame->nb_samples / pFrame->sample_rate);
   return dataSize;
 }
 bool FFmpegPlayer::decodeVideoFrame(AVFramePtr &pOutFrame) {
@@ -624,7 +629,6 @@ bool FFmpegPlayer::decodeVideoFrame(AVFramePtr &pOutFrame) {
 
   last_video_duration_pts_ = pFrame->pts - last_vframe_pts_;
   last_vframe_pts_ = pFrame->pts;
-  video_clock_.set(pFrame->pts * av_q2d(video_stream_->time_base));
 
   if (!pOutFrame) pOutFrame = makeAVFrame();
   auto tgtFormat = (config_.video.format == AV_PIX_FMT_NONE)
@@ -644,6 +648,7 @@ bool FFmpegPlayer::decodeVideoFrame(AVFramePtr &pOutFrame) {
   if (!converter_) converter_ = std::make_unique<Converter>();
   bool success = converter_->init(in, out);
   if (!success) {
+    video_clock_.set(pFrame->pts * av_q2d(video_stream_->time_base));
     return false;
   }
   pOutFrame->width = out.width;
@@ -652,9 +657,11 @@ bool FFmpegPlayer::decodeVideoFrame(AVFramePtr &pOutFrame) {
   success = converter_->convert(pFrame, pOutFrame);
   if (!success) {
     av_freep(pOutFrame->data);
+    video_clock_.set(pFrame->pts * av_q2d(video_stream_->time_base));
     return false;
   }
 
+  video_clock_.set(pFrame->pts * av_q2d(video_stream_->time_base));
   return true;
 }
 
@@ -712,9 +719,8 @@ bool FFmpegPlayer::openSDL(bool isAudio) {
     audio_hw_params.freq = have.freq;
     audio_hw_params.channel_layout = wanted_channel_layout;
     audio_hw_params.channels = have.channels;
-    audio_hw_params.frame_size = 
-      av_samples_get_buffer_size(nullptr, audio_hw_params.channels, 
-        1, (AVSampleFormat) audio_hw_params.fmt, 1);
+    audio_hw_params.frame_size = av_samples_get_buffer_size(nullptr,
+      audio_hw_params.channels, 1, (AVSampleFormat) audio_hw_params.fmt, 1);
     audio_hw_params.bytes_per_sec =
       av_samples_get_buffer_size(nullptr, audio_hw_params.channels,
         audio_hw_params.freq, (AVSampleFormat) audio_hw_params.fmt, 1);
@@ -729,7 +735,8 @@ bool FFmpegPlayer::openSDL(bool isAudio) {
   }
   else {
     window_ = SDL_CreateWindow("SDL Window", config_.video.xleft,
-      config_.video.ytop, config_.video.width, config_.video.height, 0);
+      config_.video.ytop, config_.video.width, config_.video.height,
+      SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!window_) {
       ILOG_ERROR_FMT(
         g_FFmpegPlayerLogger, "SDL_CreateWindow Error: {}", SDL_GetError());
@@ -753,11 +760,16 @@ bool FFmpegPlayer::closeSDL(bool isAudio) {
     SDL_CloseAudioDevice(device_id_);
   }
   else {
-    SDL_DestroyRenderer(renderer_);
-    SDL_DestroyWindow(window_);
+    if (renderer_) SDL_DestroyRenderer(renderer_);
+    if (window_) SDL_DestroyWindow(window_);
   }
   return true;
 }
+void FFmpegPlayer::setWindowSize(int w, int h)
+{
+  SDL_SetWindowSize(window_, w, h);
+}
+
 void FFmpegPlayer::sdlAudioCallback(void *ptr, Uint8 *stream, int len) {
   reinterpret_cast<FFmpegPlayer *>(ptr)->sdlAudioHandle(stream, len);
 }
@@ -782,8 +794,7 @@ void FFmpegPlayer::sdlAudioHandle(Uint8 *stream, int len) {
         audio_buffer_.reset(new AudioBuffer(size));
       }
       if (size > 0) {
-        audio_buffer_->fill(
-          pOutFrame->extended_data[0], size);
+        audio_buffer_->fill(pOutFrame->extended_data[0], size);
         av_freep(pOutFrame->extended_data);
       }
     }
@@ -837,73 +848,66 @@ void FFmpegPlayer::doEventLoop() {
           this->close();
           SDL_Quit();
           break;
-        case SDLK_LEFT:
-          seek((getCurrentTime() - 5.0f) * AV_TIME_BASE);
-          break;
-        case SDLK_RIGHT:
-          seek((getCurrentTime() + 5.0f) * AV_TIME_BASE);
-          break;
+        case SDLK_LEFT: seek((getCurrentTime() - 5.0f) * AV_TIME_BASE); break;
+        case SDLK_RIGHT: seek((getCurrentTime() + 5.0f) * AV_TIME_BASE); break;
         }  // Handle Key Events End
       }
-      // Extra handle
-      if (is_eof_) {
-        ILOG_INFO_FMT(g_FFmpegPlayerLogger, "Play {} to the end", url_);
-        // do {
-        //   bool audio_is_empty = isEnableAudio() && audio_frame_queue_.isEmpty(); 
-        //   bool video_is_empty = isEnableVideo() && video_frame_queue_.isEmpty();
-        //   if (audio_is_empty && video_is_empty) break;
-        // } while(true);
-        
-        this->close();
-        return ;
-      }
+    }
+    // Extra handle
+    double duration = (double) getTotalTime() / AV_TIME_BASE;
+    if (duration - getCurrentTime() < 0.5f) {
+      is_aborted_ = true;
     }
     // SDL end
   }
 }
 
 void FFmpegPlayer::doVideoDelay() {
-  double delay = (double)last_video_duration_pts_ / AV_TIME_BASE;
+  auto tb = av_q2d(video_stream_->time_base);
+  double delay = last_video_duration_pts_ * tb;
   auto x = video_frame_queue_.peek();
   if (x) {
-    delay = ((double)x->pts - last_vframe_pts_) / AV_TIME_BASE;
+    delay = (x->pts - last_vframe_pts_) * tb;
   }
-  if (delay < 0.0f || delay > 0.1f) {
-    delay = (double)x->duration / AV_TIME_BASE;
+  if (delay < 0.0f || delay > 1.0f) {
+    delay = x->duration * tb;
   }
 
+  double diff = 0.0f;
   if (isEnableAudioAndVideo()) {
-    ILOG_DEBUG_FMT(g_FFmpegPlayerLogger, "Audio: {:3f} | Video: {:3f}", audio_clock_.get(), video_clock_.get());
+    ILOG_DEBUG_FMT(g_FFmpegPlayerLogger, "Audio: {:3f} | Video: {:3f}",
+      audio_clock_.get(), video_clock_.get());
 
     double sync_threshold =
       FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(delay, AV_SYNC_THRESHOLD_MAX))
       * AV_TIME_BASE;
-    auto diff = video_clock_.get() - audio_clock_.get();
-    ILOG_DEBUG_FMT(g_FFmpegPlayerLogger, "A-V: {:3f}", -diff);
+    diff = video_clock_.get() - audio_clock_.get();
     if (fabs(diff) < AV_NOSYNC_THRESHOLD) {  // 10 secs
-      if (diff <= -sync_threshold) {
-        // video is slow
+      if (diff <= -sync_threshold)
         delay = FFMAX(0, delay + diff);
-      }
-      else if (diff >= sync_threshold) {
-        if (delay > 0.1f)
-          // video is too fast
-          delay = delay + diff;
-        else
-          // video is too slow
-          delay = 2 * delay;
-      }
+      else if (diff >= sync_threshold && delay > AV_SYNC_THRESHOLD_MAX)
+        delay = delay + diff;
+      else if (diff >= sync_threshold)
+        delay = 2 * delay;
     }
   }
   else {
-    double elapse = (double)Clock::elapse() / AV_TIME_BASE;
-    delay = AV_TIME_BASE / av_q2d(config_.video.frame_rate) / config_.common.speed;
+    double elapse = (double) Clock::elapse() / AV_TIME_BASE;
+    delay =
+      AV_TIME_BASE / av_q2d(config_.video.frame_rate) / config_.common.speed;
     delay = FFMAX(0, delay - elapse);
   }
 
-  int drift = 50;
-  ILOG_DEBUG_FMT(g_FFmpegPlayerLogger, "Sleep {:.3f}s", delay * drift);
-  Clock::sleep(delay * AV_TIME_BASE * drift);
+  // diff = V - A
+  if (diff < -0.3f) {
+    delay /= 2;
+  }
+  else if (diff > 0.3f) {
+    delay *= 2;
+  }
+
+  ILOG_DEBUG_FMT(g_FFmpegPlayerLogger, "Delay: {:.3f}s | A-V: {:.3f}s", delay, -diff);
+  Clock::sleep(delay * AV_TIME_BASE);
 }
 
 void FFmpegPlayer::doVideoDisplay() {
