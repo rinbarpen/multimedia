@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 extern "C"
 {
@@ -20,7 +20,7 @@ extern "C"
 
 static void version() {
   // print ffmpeg version
-  ILOG_INFO_FMT(GET_LOGGER2("ffmpeg"),
+  ILOG_INFO_FMT(GET_LOGGER3("ffmpeg"),
     "\tavutil: {}\n"
     "\tavcodec: {}\n"
     "\tavformat: {}\n"
@@ -35,6 +35,7 @@ static void version() {
 }
 
 static void init() {
+  avdevice_register_all();
   avformat_network_init();
 }
 
@@ -42,14 +43,14 @@ using AVFramePtr = std::shared_ptr<AVFrame>;
 using AVPacketPtr = std::shared_ptr<AVPacket>;
 
 static AVFramePtr makeAVFrame() {
-  return AVFramePtr(av_frame_alloc(), [](auto p){
+  return AVFramePtr(av_frame_alloc(), [](AVFrame *p) {
     // if (p->extended_data) av_freep(p->extended_data);
     // if (p->data) av_freep(p->data);
     av_frame_free(&p);
   });
 }
 static AVPacketPtr makeAVPacket() {
-  return AVPacketPtr(av_packet_alloc(), [](auto p){
+  return AVPacketPtr(av_packet_alloc(), [](AVPacket *p){
     av_packet_free(&p);
   });
 }

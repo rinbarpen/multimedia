@@ -1,15 +1,29 @@
-#pragma once
+﻿#pragma once
 
 #include "multimedia/AudioBuffer.hpp"
-#include "multimedia/Converter.hpp"
-#include "multimedia/Resampler.hpp"
 #include "multimedia/AVClock.hpp"
-#include "multimedia/AVThread.hpp"
 #include "multimedia/AVQueue.hpp"
-#include "multimedia/Player.hpp"
+#include "multimedia/AVThread.hpp"
 #include "multimedia/common/ConditionVariable.hpp"
+#include "multimedia/Converter.hpp"
+#include "multimedia/Player.hpp"
+#include "multimedia/Resampler.hpp"
 
+#include "FFmpegUtil.hpp"
+#include <cstdint>
+#include <libavcodec/avcodec.h>
+#include <libavcodec/codec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/pixfmt.h>
+#include <libavutil/samplefmt.h>
+#include <memory>
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_audio.h>
+#include <SDL2/SDL_pixels.h>
+#include <SDL2/SDL_render.h>
+#include <SDL2/SDL_stdinc.h>
+#include <SDL2/SDL_video.h>
+#include <string>
 
 enum class AudioDevice{
   SDL,
@@ -67,24 +81,26 @@ private:
   bool openSDL(bool isAudio);
   bool closeSDL(bool isAudio);
   void setWindowSize(int w, int h);
+  void setWidthAndHeight();
 
   static void sdlAudioCallback(void *ptr, Uint8 *stream, int len);
   void sdlAudioHandle(Uint8 *stream, int len);
 
   static SDL_PixelFormatEnum cvtFFPixFmtToSDLPixFmt(AVPixelFormat format);
+  static int cvtFFSampleFmtToSDLSampleFmt(AVSampleFormat format);
 
 private:
-  AVFormatContext *format_context_;
+  AVFormatContext *format_context_{nullptr};
   // audio
-  AVCodecContext *audio_codec_context_;
+  AVCodecContext *audio_codec_context_{nullptr};
   int audio_stream_index_{-1};
-  AVStream *audio_stream_;
-  const AVCodec *audio_codec_;
+  AVStream *audio_stream_{nullptr};
+  const AVCodec *audio_codec_{nullptr};
   // video
-  AVCodecContext *video_codec_context_;
+  AVCodecContext *video_codec_context_{nullptr};
   int video_stream_index_{-1};
-  AVStream *video_stream_;
-  const AVCodec *video_codec_;
+  AVStream *video_stream_{nullptr};
+  const AVCodec *video_codec_{nullptr};
   // subtitle
 
   AVFrameQueue video_frame_queue_;
@@ -93,6 +109,7 @@ private:
   AVPacketQueue audio_packet_queue_;
 
   int64_t seek_pos_;
+  double last_paused_time_;
   ConditionVariable continue_read_cond_;
 
   int64_t last_vframe_pts_{0};

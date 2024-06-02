@@ -13,12 +13,17 @@ struct PlayerConfig
     AVRational frame_rate{25, 1};
 
     AVPixelFormat format{AV_PIX_FMT_YUV420P};
+    AVRational sample_aspect_ratio{16, 9};
 
     int xleft{0};
     int ytop{0};
+    int max_width {1920};
+    int max_height {1080};
+    bool keep_raw_ratio{true};
+    bool auto_fit{true};
   }video;
   struct audio{
-    int sample_rate{41000};
+    int sample_rate{-1};
     int channels{2};
     AVSampleFormat format{AV_SAMPLE_FMT_S16};
 
@@ -37,7 +42,6 @@ struct PlayerConfig
 
     float speed{1.0f};
     bool loop{true};
-    bool auto_fit{true};
     bool save_while_playing{false};  // 播放设备流时有效
   }common;
 

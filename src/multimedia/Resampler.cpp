@@ -1,5 +1,4 @@
-#include "multimedia/Resampler.hpp"
-#include "libavutil/mem.h"
+﻿#include "multimedia/Resampler.hpp"
 
 Resampler::Resampler() {}
 Resampler::~Resampler() {
@@ -20,12 +19,10 @@ bool Resampler::init(Info in, Info out) {
   }
 
   int r{-1};
-  AVChannelLayout inChannelLayout = {
-    .nb_channels = in.channels,
-  };
-  AVChannelLayout outChannelLayout = {
-    .nb_channels = out.channels,
-  };
+  AVChannelLayout inChannelLayout{};
+  inChannelLayout.nb_channels = in.channels;
+  AVChannelLayout outChannelLayout{};
+  outChannelLayout.nb_channels = out.channels;
   r = swr_alloc_set_opts2(&swr_context_, &outChannelLayout, out.format,
     out.sample_rate, &inChannelLayout, in.format, in.sample_rate, 0, nullptr);
   if (!swr_context_ || r < 0) return false;
@@ -49,7 +46,7 @@ int Resampler::resample(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
       outCount, (AVSampleFormat) pOutFrame->format, 1);
   if (outSize < 0) return -1;
 
-  uint32_t size = 500 * 1000;
+  uint32_t size = 48000 * 4 * 1;
   pOutFrame->extended_data[0] = (uint8_t*)av_malloc(size);
   av_fast_malloc(&pOutFrame->extended_data[0], &size, outSize);
   if (!pOutFrame->extended_data[0]) return false;
