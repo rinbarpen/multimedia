@@ -1,4 +1,4 @@
-﻿#include "multimedia/Resampler.hpp"
+﻿#include "multimedia/filter/Resampler.hpp"
 
 Resampler::Resampler() {}
 Resampler::~Resampler() {

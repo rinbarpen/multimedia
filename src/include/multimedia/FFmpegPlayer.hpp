@@ -1,34 +1,26 @@
 ﻿#pragma once
 
-#include "multimedia/AudioBuffer.hpp"
+#include <cstdint>
+#include <memory>
+#include <string>
+
+#include "multimedia/common/ConditionVariable.hpp"
 #include "multimedia/AVClock.hpp"
 #include "multimedia/AVQueue.hpp"
 #include "multimedia/AVThread.hpp"
-#include "multimedia/common/ConditionVariable.hpp"
-#include "multimedia/Converter.hpp"
+#include "multimedia/AudioBuffer.hpp"
 #include "multimedia/Player.hpp"
-#include "multimedia/Resampler.hpp"
+#include "multimedia/filter/Resampler.hpp"
+#include "multimedia/filter/Converter.hpp"
 
-#include "FFmpegUtil.hpp"
-#include <cstdint>
-#include <libavcodec/avcodec.h>
-#include <libavcodec/codec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/pixfmt.h>
-#include <libavutil/samplefmt.h>
-#include <memory>
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_audio.h>
-#include <SDL2/SDL_pixels.h>
-#include <SDL2/SDL_render.h>
-#include <SDL2/SDL_stdinc.h>
-#include <SDL2/SDL_video.h>
-#include <string>
 
-enum class AudioDevice{
+enum class AudioDevice
+{
   SDL,
 };
-enum class VideoDevice{
+enum class VideoDevice
+{
   SDL,
   D3D9EX,
   OPENGL,
@@ -37,33 +29,37 @@ enum class VideoDevice{
 
 class FFmpegPlayer : public Player
 {
-  friend class AVReadThread;
-  friend class AVVideoDecodeThread;
-  friend class AVAudioDecodeThread;
 public:
   FFmpegPlayer(AudioDevice audioDevice, VideoDevice videoDevice);
   ~FFmpegPlayer();
 
   bool init(PlayerConfig config) override;
-  bool open(const std::string& url) override;
-  bool openDevice(const std::string &url, const std::string& shortName) override;
-  bool play() override;
+  void stop() override;
   bool replay() override;
   bool pause() override;
-  void stop() override;
-  bool close() override;
-  void seek(int64_t pos) override;
-  int64_t getTotalTime() const override { return format_context_->duration; }
+  void seek(double pos) override;
+  double getTotalTime() const override { return (double)format_context_->duration / AV_TIME_BASE; }
   double getCurrentTime() const override { return audio_clock_.get(); }
-  bool isFinished() const { return is_eof_; }
   bool isAborted() const { return is_aborted_; }
 
+  void play(const MediaList &list); 
+  void play(const MediaSource &media);
+
+  void playPrev();
+  void playNext();
+
 protected:
+  bool open(const std::string &url) override;
+  bool play() override;
+  bool close() override;
+  bool openDevice(
+    const std::string &url, const std::string &shortName = "") override;
   virtual void doEventLoop();
   virtual void doVideoDisplay();
   virtual void doVideoDelay();
 
 private:
+  void destroy() override;
   bool check(PlayerConfig &config) const;
 
   void onReadFrame();
@@ -109,7 +105,7 @@ private:
   AVPacketQueue audio_packet_queue_;
 
   int64_t seek_pos_;
-  double last_paused_time_;
+  double last_paused_time_{-1.0f};
   ConditionVariable continue_read_cond_;
 
   int64_t last_vframe_pts_{0};
@@ -117,14 +113,15 @@ private:
   AVClock video_clock_;
   AVClock audio_clock_;
 
-  bool need2pause_{false};
-  bool need2seek_{false};
-  bool is_aborted_{false};
-  bool is_eof_{false};
+  Bit need2pause_{false};
+  Bit need2seek_{false};
+  Bit is_aborted_{false};
+  Bit is_eof_{false};
 
-  AVThread read_thread_;
-  AVThread video_decode_thread_;
-  AVThread audio_decode_thread_;
+  AVThread read_thread_{"ReadThread"};
+  AVThread audio_decode_thread_{"AudioDecodeThread"};
+  AVThread video_decode_thread_{"VideoDecodeThread"};
+  AVThread play_thread_{"PlayThread"};  
 
   std::unique_ptr<Resampler> resampler_;
   std::unique_ptr<Converter> converter_;

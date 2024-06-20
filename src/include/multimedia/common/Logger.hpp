@@ -613,20 +613,8 @@ static Logger::ptr GET_LOGGER2(const std::string &name, const std::string &paren
     return nullptr;
   }
 
-  auto pLogger = std::make_shared<Logger>(name);
-  pLogger->setLevel(level);
-  pLogger->setFormatter(pattern);
-
   auto filename = base_logger(pa)->getName();
-  if ((flags & CONSOLE) == CONSOLE) {
-    pLogger->addAppender(std::make_shared<StdoutLogAppender>());
-  }
-  if ((flags & SYNC_FILE) == SYNC_FILE) {
-    pLogger->addAppender(std::make_shared<FileLogAppender>(filename));
-  }
-  else if ((flags & ASYNC_FILE) == ASYNC_FILE) {
-    pLogger->addAppender(std::make_shared<AsyncFileLogAppender>(filename));
-  }
+  auto pLogger = std::make_shared<Logger>(name, level, pattern, flags, filename);
   pLogger->setParent(pa);
 
   LogManager::instance()->insert(pLogger);
@@ -649,20 +637,8 @@ static Logger::ptr GET_LOGGER3(const std::string &name, const std::string &split
 
   auto firstDot = name.find(split);
   auto lastDot = name.rfind(split);
-  auto pLogger = std::make_shared<Logger>(name);
-  pLogger->setLevel(level);
-  pLogger->setFormatter(pattern);
-
   auto filename = name.substr(0, firstDot);  // if no dot, this is myself
-  if ((flags & CONSOLE) == CONSOLE) {
-    pLogger->addAppender(std::make_shared<StdoutLogAppender>());
-  }
-  if ((flags & SYNC_FILE) == SYNC_FILE) {
-    pLogger->addAppender(std::make_shared<FileLogAppender>(filename));
-  }
-  else if ((flags & ASYNC_FILE) == ASYNC_FILE) {
-    pLogger->addAppender(std::make_shared<AsyncFileLogAppender>(filename));
-  }
+  auto pLogger = std::make_shared<Logger>(name, level, pattern, flags, filename);
 
   if (firstDot != std::string::npos) {
     pLogger->setParent(GET_LOGGER3(name.substr(0, lastDot), split, flags, level, pattern));

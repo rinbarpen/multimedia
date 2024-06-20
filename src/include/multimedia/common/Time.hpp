@@ -5,7 +5,7 @@
 #include <string>
 #include <sstream>
 
-class Time
+class TimeUtil
 {
 public:
   using BaseClockType = std::chrono::steady_clock;
@@ -45,11 +45,11 @@ class Clock
 {
 public:
   static void start() { 
-    last_tp_ = Time::now();
+    last_tp_ = TimeUtil::now();
   }
   static int64_t elapse() { 
-    auto curr_tp = Time::now();
-    auto elapsed = Time::elapse<std::chrono::microseconds>(last_tp_, curr_tp).count();
+    auto curr_tp = TimeUtil::now();
+    auto elapsed = TimeUtil::elapse<std::chrono::microseconds>(last_tp_, curr_tp).count();
     last_tp_ = curr_tp;
     return elapsed;
   }
@@ -58,5 +58,5 @@ public:
   }
 
 private:
-  static inline Time::BaseTimePoint last_tp_;
+  static inline TimeUtil::BaseTimePoint last_tp_;
 };

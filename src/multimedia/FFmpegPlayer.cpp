@@ -1,10 +1,11 @@
 ﻿#include "multimedia/FFmpegPlayer.hpp"
 
-#include <SDL2/SDL.h>
-#include <chrono>
+#include <SDL2/SDL_keycode.h>
 
 #include "multimedia/AudioBuffer.hpp"
+#include "multimedia/MediaList.hpp"
 #include "multimedia/common/Logger.hpp"
+#include "multimedia/common/Math.hpp"
 #include "multimedia/common/Time.hpp"
 
 #define AV_SYNC_THRESHOLD_MIN           0.04
@@ -41,23 +42,18 @@ bool FFmpegPlayer::init(PlayerConfig config) {
   if (!check(config)) {
     return false;
   }
+
   config_ = config;
-  state_ = INITED;
-  is_eof_ = is_aborted_ = is_streaming_ = false;
-  need2seek_ = need2pause_ = false;
+  is_eof_.unset();
+  is_aborted_.unset();
+  is_streaming_.unset();
+  need2seek_.unset();
+  need2pause_.unset();
   short_name_ = url_ = "";
+  state_ = READY;
   return true;
 }
-bool FFmpegPlayer::close() {
-  if (isPlaying()) pause();
-
-  if (isEnableAudio()) closeAudio();
-
-  is_aborted_ = true;
-  read_thread_.stop();
-  video_decode_thread_.stop();
-  audio_decode_thread_.stop();
-
+void FFmpegPlayer::destroy() {
   if (format_context_) {
     avformat_close_input(&format_context_);
     avformat_free_context(format_context_);
@@ -82,35 +78,65 @@ bool FFmpegPlayer::close() {
   audio_clock_.reset();
   video_clock_.reset();
 
-  is_eof_ = is_aborted_ = is_streaming_ = false;
-  need2seek_ = need2pause_ = false;
-  short_name_ = url_ = "";
   resampler_.release();
   converter_.release();
+  is_eof_.unset();
+  is_aborted_.unset();
+  is_streaming_.unset();
+  need2seek_.unset();
+  need2pause_.unset();
+  short_name_ = url_ = "";
+}
+bool FFmpegPlayer::close() {
+  if (state_ <= READY) return false;
+  if (isPlaying()) pause();
 
-  state_ = INITED;
+  if (isEnableAudio()) closeAudio();
+
+  is_aborted_ = true;
+  if (isEnableAudio()) {
+    audio_frame_queue_.close();
+    audio_packet_queue_.close();
+  }
+  if (isEnableVideo()) {
+    video_frame_queue_.close();
+    video_packet_queue_.close();
+  }
+
+  if (!is_native_mode) play_thread_.stop();
+  read_thread_.stop();
+  video_decode_thread_.stop();
+  audio_decode_thread_.stop();
+
+  destroy();
+
+  state_ = READY;
   return true;
 }
 bool FFmpegPlayer::open(const std::string &url) {
+  if (state_ != READY) {
+    if (state_ == NONE) return false;
+    close();
+  }
   int r;
 
   format_context_ = avformat_alloc_context();
   if (!format_context_) {
     FFMPEG_LOG_ERROR("Couldn't allocate format context");
-    this->close();
+    this->destroy();
     return false;
   }
 
   r = avformat_open_input(&format_context_, url.c_str(), nullptr, nullptr);
   if (r < 0) {
     FFMPEG_LOG_ERROR("Couldn't open file");
-    this->close();
+    this->destroy();
     return false;
   }
   r = avformat_find_stream_info(format_context_, nullptr);
   if (r < 0) {
     FFMPEG_LOG_ERROR("Couldn't find stream information");
-    this->close();
+    this->destroy();
     return false;
   }
 
@@ -128,26 +154,26 @@ bool FFmpegPlayer::open(const std::string &url) {
       audio_codec_context_ = avcodec_alloc_context3(nullptr);
       if (!audio_codec_context_) {
         FFMPEG_LOG_ERROR("Couldn't allocate audio codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_parameters_to_context(
         audio_codec_context_, audio_stream_->codecpar);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't copy audio codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       audio_codec_ = avcodec_find_decoder(audio_codec_context_->codec_id);
       if (!audio_codec_) {
         FFMPEG_LOG_ERROR("Couldn't find audio decoder");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_open2(audio_codec_context_, audio_codec_, nullptr);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't open audio codec");
-        this->close();
+        this->destroy();
         return false;
       }
       audio_frame_queue_.clear();
@@ -175,26 +201,26 @@ bool FFmpegPlayer::open(const std::string &url) {
       video_codec_context_ = avcodec_alloc_context3(nullptr);
       if (!video_codec_context_) {
         FFMPEG_LOG_ERROR("Couldn't allocate video codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_parameters_to_context(
         video_codec_context_, video_stream_->codecpar);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't copy video codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       video_codec_ = avcodec_find_decoder(video_codec_context_->codec_id);
       if (!video_codec_) {
         FFMPEG_LOG_ERROR("Couldn't find video decoder");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_open2(video_codec_context_, video_codec_, nullptr);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't open video codec");
-        this->close();
+        this->destroy();
         return false;
       }
       video_frame_queue_.clear();
@@ -215,31 +241,36 @@ bool FFmpegPlayer::open(const std::string &url) {
 
   if (!isEnableAudio() && !isEnableVideo()) {
     ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "No Source to Play!!");
-    this->close();
+    this->destroy();
     return false;
   }
 
-  is_streaming_ = isStreamUrl(url_);
+  is_streaming_ = isStreamUrl(url);
   url_ = url;
   if (!openAudio()) config_.common.enable_audio = false;
   if (isEnableVideo()) setWindowSize(config_.video.width, config_.video.height);
+  state_ = READY2PLAY;
   return true;
 }
 bool FFmpegPlayer::openDevice(
   const std::string &url, const std::string &shortName) {
-  int r;
+  if (state_ != READY) {
+    if (state_ == NONE) return false;
+    close();
+  }
 
+  int r;
   format_context_ = avformat_alloc_context();
   if (!format_context_) {
     FFMPEG_LOG_ERROR("Couldn't allocate format context");
-    this->close();
+    this->destroy();
     return false;
   }
 
   auto pInputFormat = av_find_input_format(shortName.c_str());
   if (pInputFormat == nullptr) {
     ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "Not found the target device");
-    this->close();
+    this->destroy();
     return false;
   }
 
@@ -251,13 +282,13 @@ bool FFmpegPlayer::openDevice(
   r = avformat_open_input(&format_context_, url.c_str(), pInputFormat, &opt);
   if (r < 0) {
     FFMPEG_LOG_ERROR("Couldn't open file");
-    this->close();
+    this->destroy();
     return false;
   }
   r = avformat_find_stream_info(format_context_, nullptr);
   if (r < 0) {
     FFMPEG_LOG_ERROR("Couldn't find stream information");
-    this->close();
+    this->destroy();
     return false;
   }
 
@@ -275,26 +306,26 @@ bool FFmpegPlayer::openDevice(
       audio_codec_context_ = avcodec_alloc_context3(nullptr);
       if (!audio_codec_context_) {
         FFMPEG_LOG_ERROR("Couldn't allocate audio codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_parameters_to_context(
         audio_codec_context_, audio_stream_->codecpar);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't copy audio codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       audio_codec_ = avcodec_find_decoder(audio_codec_context_->codec_id);
       if (!audio_codec_) {
         FFMPEG_LOG_ERROR("Couldn't find audio decoder");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_open2(audio_codec_context_, audio_codec_, nullptr);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't open audio codec");
-        this->close();
+        this->destroy();
         return false;
       }
       audio_frame_queue_.clear();
@@ -322,26 +353,26 @@ bool FFmpegPlayer::openDevice(
       video_codec_context_ = avcodec_alloc_context3(nullptr);
       if (!video_codec_context_) {
         FFMPEG_LOG_ERROR("Couldn't allocate video codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_parameters_to_context(
         video_codec_context_, video_stream_->codecpar);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't copy video codec context");
-        this->close();
+        this->destroy();
         return false;
       }
       video_codec_ = avcodec_find_decoder(video_codec_context_->codec_id);
       if (!video_codec_) {
         FFMPEG_LOG_ERROR("Couldn't find video decoder");
-        this->close();
+        this->destroy();
         return false;
       }
       r = avcodec_open2(video_codec_context_, video_codec_, nullptr);
       if (r < 0) {
         FFMPEG_LOG_ERROR("Couldn't open video codec");
-        this->close();
+        this->destroy();
         return false;
       }
       video_frame_queue_.clear();
@@ -360,25 +391,40 @@ bool FFmpegPlayer::openDevice(
 
   if (!isEnableAudio() && !isEnableVideo()) {
     ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "No Source to Play!!");
-    this->close();
+    this->destroy();
     return false;
   }
 
   url_ = url;
   short_name_ = shortName;
-  is_streaming_ = true;
+  is_streaming_.set();
   if (!openAudio()) config_.common.enable_audio = false;
   if (isEnableVideo()) setWindowSize(config_.video.width, config_.video.height);
+  state_ = READY2PLAY;
   return true;
 }
 
 bool FFmpegPlayer::play() {
+  if (state_ != READY2PLAY) return false;
+
+  if (isEnableAudio()) {
+    audio_frame_queue_.open();
+    audio_packet_queue_.open();
+  }
+  if (isEnableVideo()) {
+    video_frame_queue_.open();
+    video_packet_queue_.open();
+  }
+
+  if (isNetworkStream()) av_read_play(format_context_);
+
   read_thread_.dispatch(&FFmpegPlayer::onReadFrame, this);
   if (isEnableAudio())
     audio_decode_thread_.dispatch(&FFmpegPlayer::onAudioDecode, this);
   if (isEnableVideo())
     video_decode_thread_.dispatch(&FFmpegPlayer::onVideoDecode, this);
 
+  state_ = PLAYING;
   if (isEnableAudio()) {
     audio_clock_.set(
       audio_stream_->start_time * av_q2d(audio_stream_->time_base));
@@ -389,41 +435,47 @@ bool FFmpegPlayer::play() {
   if (isEnableVideo()) {
     video_clock_.set(
       video_stream_->start_time * av_q2d(video_stream_->time_base));
-    doVideoDisplay();
+    if (is_native_mode)
+      doVideoDisplay();
+    else
+      play_thread_.dispatch(&FFmpegPlayer::doVideoDisplay, this);
   }
   else {
-    while (!is_aborted_ || !is_eof_)
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (is_native_mode)
+      while (!is_aborted_ || !is_eof_)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
   return true;
 }
 
 bool FFmpegPlayer::replay() {
-  if (isPlaying()) return false;
+  if (!isPaused()) return false;
 
-  need2pause_ = false;
+  need2pause_.unset();
   if (isEnableAudio()) {
     SDL_LockAudioDevice(device_id_);
     SDL_PauseAudioDevice(device_id_, 0);
     SDL_UnlockAudioDevice(device_id_);
   }
-  av_read_play(format_context_);
+  if (isNetworkStream()) av_read_play(format_context_);
+
   state_ = PLAYING;
   return true;
 }
 
 bool FFmpegPlayer::pause() {
-  if (isPaused()) return false;
+  // PLAYING, READY2PLAY
+  if (state_ != PLAYING || state_ != READY2PLAY) return false;
 
-  need2pause_ = true;
+  need2pause_.set();
   last_paused_time_ = getCurrentTime();
   if (isEnableAudio()) {
     SDL_LockAudioDevice(device_id_);
     SDL_PauseAudioDevice(device_id_, 1);
     SDL_UnlockAudioDevice(device_id_);
   }
-  av_read_pause(format_context_);
+  if (isNetworkStream()) av_read_pause(format_context_);
   state_ = PAUSED;
   return true;
 }
@@ -432,14 +484,63 @@ void FFmpegPlayer::stop() {
   close();
 }
 
-void FFmpegPlayer::seek(int64_t pos) {
-  if (pos < 0)
-    pos = 0;
+void FFmpegPlayer::play(const MediaList &list) {
+  if (list.isEmpty()) return ;
+
+  list_ = list;
+  do {
+    size_t idx = list_.current();
+    if (idx >= list_.size()) {
+      if (!config_.isListLoop()) {
+        break;
+      }
+      list_.rewind();
+      idx = 0;
+    }
+    open(list_.get(idx).getUrl());
+    play();
+    if (!config_.isSignalLoop()) 
+      list_.next();
+  } while (config_.common.auto_read_next_media);
+}
+void FFmpegPlayer::play(const MediaSource &media) {
+  list_.clear();
+  list_.add(media);
+  
+  do {
+    size_t idx = list_.current();
+    if (idx >= list_.size()) {
+      if (!config_.isListLoop()) {
+        break;
+      }
+      list_.rewind();
+      idx = 0;
+    }
+    open(list_.get(idx).getUrl());
+    play();
+    if (!config_.isSignalLoop()) 
+      list_.next();
+  } while (config_.common.auto_read_next_media);
+}
+  
+void FFmpegPlayer::playPrev() {
+  list_.prev();
+  play(list_.get(list_.current()).getUrl()); 
+}
+void FFmpegPlayer::playNext() {
+  list_.next();
+  play(list_.get(list_.current()).getUrl()); 
+}
+
+
+void FFmpegPlayer::seek(double pos) {
+  if (pos < 0.0f)
+    pos = 0.0f;
   else if (pos > getTotalTime())
     pos = getTotalTime();
-  ILOG_INFO_FMT(g_FFmpegPlayerLogger, "Seek to {}s", pos / AV_TIME_BASE);
-  seek_pos_ = pos;
-  need2seek_ = true;
+  ILOG_INFO_FMT(g_FFmpegPlayerLogger, "Seek to {}s", pos);
+  seek_pos_ = pos * AV_TIME_BASE;
+  need2seek_.set();
 }
 
 bool FFmpegPlayer::check(PlayerConfig &config) const {
@@ -458,9 +559,7 @@ bool FFmpegPlayer::check(PlayerConfig &config) const {
 
 void FFmpegPlayer::onReadFrame() {
   int r;
-  while (true) {
-    if (is_aborted_) return;
-
+  while (!is_aborted_) {
     if (need2seek_) {
       pause();
       int64_t seekTarget = seek_pos_;
@@ -479,8 +578,8 @@ void FFmpegPlayer::onReadFrame() {
         video_packet_queue_.clear();
         video_frame_queue_.clear();
       }
-      need2seek_ = false;
-      is_eof_ = false;
+      need2seek_.unset();
+      is_eof_.unset();
       replay();
     }
 
@@ -494,12 +593,11 @@ void FFmpegPlayer::onReadFrame() {
       return true;
     });
 
-
     auto pPkt = makeAVPacket();
     r = av_read_frame(format_context_, pPkt.get());
     if (r == AVERROR_EOF) {
       ILOG_INFO_FMT(g_FFmpegPlayerLogger, "End of file");
-      is_eof_ = true;
+      is_eof_.set();
       continue_read_cond_.waitFor(
         std::chrono::microseconds(10), [&] { return false; });
       return;
@@ -588,8 +686,8 @@ int FFmpegPlayer::decodeAudioFrame(AVFramePtr &pOutFrame) {
   pOutFrame->format = tgtFormat;
   pOutFrame->sample_rate = config_.audio.sample_rate;
   pOutFrame->ch_layout.nb_channels = config_.audio.channels;
-  pOutFrame->channel_layout =
-    av_get_default_channel_layout(config_.audio.channels);
+  // pOutFrame->channel_layout =
+  // av_get_default_channel_layout(config_.audio.channels);
   Resampler::Info in;
   in.sample_rate = pFrame->sample_rate;
   in.channels = pFrame->ch_layout.nb_channels;
@@ -757,18 +855,9 @@ void FFmpegPlayer::setWindowSize(int w, int h) {
 
 void FFmpegPlayer::setWidthAndHeight() {
   if (config_.video.keep_raw_ratio) {
-    config_.video.height = video_codec_context_->height;    
-    config_.video.width = video_codec_context_->width;
-    if (config_.video.height > config_.video.max_height) {
-      config_.video.height = config_.video.max_height;
-      config_.video.width = config_.video.height * config_.video.max_width
-                            / config_.video.max_height;
-    }
-    if (config_.video.width > config_.video.max_width) {
-      config_.video.width = config_.video.max_width;
-      config_.video.height = config_.video.width * config_.video.max_height
-                            / config_.video.max_width;
-    }
+    math_api::window_fit(config_.video.width, config_.video.height,
+      video_codec_context_->width, video_codec_context_->height,
+      config_.video.max_width, config_.video.max_height, 1);
     setWindowSize(config_.video.width, config_.video.height);
     return;
   }
@@ -777,7 +866,7 @@ void FFmpegPlayer::setWidthAndHeight() {
       || config_.video.sample_aspect_ratio.den == 0)
     config_.video.sample_aspect_ratio =
       video_codec_context_->sample_aspect_ratio;
-  
+
   if (config_.video.auto_fit) {
     if (config_.video.sample_aspect_ratio.num != 0
         && config_.video.sample_aspect_ratio.den != 0) {
@@ -871,12 +960,18 @@ void FFmpegPlayer::doEventLoop() {
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
       case SDL_QUIT:
+        close();
         closeVideo();
-        this->close();
         SDL_Quit();
         exit(0);
       case SDL_KEYDOWN:
         switch (event.key.keysym.sym) {
+        case SDLK_q: 
+          playPrev();
+          break;
+        case SDLK_e:
+          playNext();
+          break;
         case SDLK_SPACE:
         {
           if (isPaused())
@@ -886,18 +981,19 @@ void FFmpegPlayer::doEventLoop() {
           break;
         }
         case SDLK_ESCAPE:
+          closeVideo();
           this->close();
           SDL_Quit();
-          break;
-        case SDLK_LEFT: seek((getCurrentTime() - 5.0f) * AV_TIME_BASE); break;
-        case SDLK_RIGHT: seek((getCurrentTime() + 5.0f) * AV_TIME_BASE); break;
+          exit(0);
+        case SDLK_LEFT: seekPrev(); break;
+        case SDLK_RIGHT: seekNext(); break;
+        case SDLK_PLUS:
+        case SDLK_UP: volumeUp(); break;
+        case SDLK_MINUS:
+        case SDLK_DOWN: volumeDown(); break;
+        case SDLK_m: setMute(!config_.audio.is_muted); break;
         }  // Handle Key Events End
       }
-    }
-    // Extra handle
-    double duration = (double) getTotalTime() / AV_TIME_BASE;
-    if (duration - getCurrentTime() < 0.5f) {
-      is_aborted_ = true;
     }
     // SDL end
   }
@@ -958,8 +1054,16 @@ void FFmpegPlayer::doVideoDelay() {
 
 void FFmpegPlayer::doVideoDisplay() {
   int r;
-  while (!is_aborted_) {
-    doEventLoop();
+  while (!isAborted()) {
+    if (is_native_mode) doEventLoop();
+    // if (is_eof_ && video_frame_queue_.isEmpty() &&
+    // video_packet_queue_.isEmpty()) {
+    //   is_aborted_ = true;
+    //   break;
+    // }
+    if (getTotalTime() - getCurrentTime() < 0.3f) {
+      is_aborted_ = true;
+    }
     if (isPaused()) {
       continue;
     }
@@ -971,34 +1075,42 @@ void FFmpegPlayer::doVideoDisplay() {
       continue;
     }
 
-    if (video_device_ == VideoDevice::SDL) {
-      SDL_PixelFormatEnum format = cvtFFPixFmtToSDLPixFmt(config_.video.format);
-      SDL_Texture *pTexture = SDL_CreateTexture(renderer_, format,
-        SDL_TEXTUREACCESS_STREAMING, config_.video.width, config_.video.height);
-      if (pTexture == nullptr) {
-        LOG_ERROR_FMT("Failed to create texture while playing");
-        av_freep(pOutFrame->data);
-        doVideoDelay();
-        break;
+    do {
+      if (!is_native_mode) {
+        // sendVFrame2Queue(pOutFrame);
+        continue;
       }
+      if (video_device_ == VideoDevice::SDL) {
+        SDL_PixelFormatEnum format =
+          cvtFFPixFmtToSDLPixFmt(config_.video.format);
+        SDL_Texture *pTexture =
+          SDL_CreateTexture(renderer_, format, SDL_TEXTUREACCESS_STREAMING,
+            config_.video.width, config_.video.height);
+        if (pTexture == nullptr) {
+          LOG_ERROR_FMT("Failed to create texture while playing");
+          break;
+        }
 
-      if (format == SDL_PIXELFORMAT_YV12 || format == SDL_PIXELFORMAT_IYUV)
-        SDL_UpdateYUVTexture(pTexture, nullptr, pOutFrame->data[0],
-          pOutFrame->linesize[0], pOutFrame->data[1], pOutFrame->linesize[1],
-          pOutFrame->data[2], pOutFrame->linesize[2]);
-      else
-        SDL_UpdateTexture(
-          pTexture, nullptr, pOutFrame->data[0], pOutFrame->linesize[0]);
+        if (format == SDL_PIXELFORMAT_YV12 || format == SDL_PIXELFORMAT_IYUV)
+          SDL_UpdateYUVTexture(pTexture, nullptr, pOutFrame->data[0],
+            pOutFrame->linesize[0], pOutFrame->data[1], pOutFrame->linesize[1],
+            pOutFrame->data[2], pOutFrame->linesize[2]);
+        else
+          SDL_UpdateTexture(
+            pTexture, nullptr, pOutFrame->data[0], pOutFrame->linesize[0]);
 
-      SDL_RenderClear(renderer_);
-      SDL_RenderCopy(renderer_, pTexture, nullptr, nullptr);
-      SDL_RenderPresent(renderer_);
-      SDL_DestroyTexture(pTexture);
-    }
+        SDL_RenderClear(renderer_);
+        SDL_RenderCopy(renderer_, pTexture, nullptr, nullptr);
+        SDL_RenderPresent(renderer_);
+        SDL_DestroyTexture(pTexture);
+      }
+    } while (0);
 
     av_freep(pOutFrame->data);
     doVideoDelay();
   }
+
+  state_ = FINISHED;
 }
 
 SDL_PixelFormatEnum FFmpegPlayer::cvtFFPixFmtToSDLPixFmt(AVPixelFormat format) {

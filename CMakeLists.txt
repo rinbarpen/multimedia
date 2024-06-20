@@ -80,8 +80,12 @@ file(GLOB
   SRC_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/recorder/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/device/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/filter/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/*.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/filter/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/recorder/*.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/device/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/common/*.hpp"
 )
 
@@ -99,6 +103,8 @@ set(PROJECT_LIBS
 )
 if(WIN32)
   list(APPEND PROJECT_LIBS "D3D9.lib")
+elseif(LINUX)
+  list(APPEND PROJECT_LIBS "libX11.so")
 endif()
 
 set(PROJECT_INCLUDES

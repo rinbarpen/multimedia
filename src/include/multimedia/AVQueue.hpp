@@ -11,10 +11,20 @@ public:
   AVQueue() = default;
   virtual ~AVQueue() = default;
 
+  void open() {
+    running_ = true;
+  }
+  void close() {
+    running_ = false;
+  }
+
   bool push(const T& x) {
     {
       Mutex::ulock locker(cond_mutex_);
-      cond_.wait(locker, [this]() { return data_.size() <= max_size_ / 5; });
+      cond_.wait(locker, [this] { 
+        return data_.size() <= max_size_ / 5 || !running_; 
+      });
+      if (!running_) return false;
     }
     Mutex::lock locker1(mutex_);
     data_.push_back(x);
@@ -23,9 +33,10 @@ public:
   bool push(T&& x) {
     {
       Mutex::ulock locker(cond_mutex_);
-      cond_.wait(locker, [this]() {
-        return data_.size() <= max_size_ / 5;
+      cond_.wait(locker, [this] { 
+        return data_.size() <= max_size_ / 5 || !running_; 
       });
+      if (!running_) return false;
     }
     Mutex::lock locker1(mutex_);
     data_.push_back(x);
@@ -82,6 +93,7 @@ private:
   std::condition_variable cond_;
   mutable Mutex::type cond_mutex_;
   mutable Mutex::type mutex_;
+  std::atomic_bool running_{false};
 };
 
 using AVFrameQueue = AVQueue<AVFramePtr>;
