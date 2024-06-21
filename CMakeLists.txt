@@ -40,11 +40,12 @@ if(NOT OPENSSL_FOUND)
   message(FATAL_ERROR "OpenSSL not found")
 endif()
 
-set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg")
 if(WIN32)
-  set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib/win")
+  set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/win32/6.1n")
+  set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib")
 else()
-  set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib/linux")
+  set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/linux/6.1n")
+  set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib")
 endif()
 set(FFMPEG_LIBRARIES
   avcodec

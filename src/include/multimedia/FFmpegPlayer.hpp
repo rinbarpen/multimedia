@@ -128,6 +128,7 @@ private:
 
   AudioDevice audio_device_;
   VideoDevice video_device_;
+  DeviceConfig device_config_;
 
   // for SDL
   SDL_Window *window_;

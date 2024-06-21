@@ -12,7 +12,7 @@ Device::~Device()
 
 std::vector<Device> Device::getDevices()
 {
-
+  return {};
 }
 
 void Device::dump() {

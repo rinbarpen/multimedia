@@ -5,6 +5,20 @@
 
 #include "multimedia/FFmpegUtil.hpp"
 
+struct DeviceConfig
+{
+  struct camera
+  {
+
+  } camera;
+  struct grabber
+  {
+    bool draw_mouse{true};
+  } grabber;
+
+  bool is_camera;
+};
+
 class Device
 {
 public:

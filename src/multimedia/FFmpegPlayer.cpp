@@ -275,9 +275,14 @@ bool FFmpegPlayer::openDevice(
   }
 
   AVDictionary *opt = nullptr;
-  av_dict_set_int(&opt, "framerate",
-    std::lround(av_q2d(config_.video.frame_rate)), AV_DICT_MATCH_CASE);
-  av_dict_set_int(&opt, "draw_mouse", 1, AV_DICT_MATCH_CASE);
+  if (device_config_.is_camera) {
+  }
+  else {
+    av_dict_set_int(&opt, "framerate",
+      std::lround(av_q2d(config_.video.frame_rate)), AV_DICT_MATCH_CASE);
+    av_dict_set_int(&opt, "draw_mouse", device_config_.grabber.draw_mouse,
+      AV_DICT_MATCH_CASE);
+  }
 
   r = avformat_open_input(&format_context_, url.c_str(), pInputFormat, &opt);
   if (r < 0) {
@@ -497,7 +502,14 @@ void FFmpegPlayer::play(const MediaList &list) {
       list_.rewind();
       idx = 0;
     }
-    open(list_.get(idx).getUrl());
+    auto media = list_.get(idx);
+    if (media.getDeviceName().empty()) {
+      open(media.getUrl());
+    }
+    else {
+      device_config_ = media.config();
+      openDevice(media.getUrl(), media.getDeviceName());
+    }
     play();
     if (!config_.isSignalLoop()) 
       list_.next();
@@ -516,7 +528,14 @@ void FFmpegPlayer::play(const MediaSource &media) {
       list_.rewind();
       idx = 0;
     }
-    open(list_.get(idx).getUrl());
+    auto media = list_.get(idx);
+    if (media.getDeviceName().empty()) {
+      open(media.getUrl());
+    }
+    else {
+      device_config_ = media.config();
+      openDevice(media.getUrl(), media.getDeviceName());
+    }
     play();
     if (!config_.isSignalLoop()) 
       list_.next();
@@ -1027,20 +1046,19 @@ void FFmpegPlayer::doVideoDelay() {
       else if (diff >= sync_threshold)
         delay = 2 * delay;
     }
+
+    // diff = V - A
+    if (diff < -0.3f) {
+      delay /= 2;
+    }
+    else if (diff > 0.3f) {
+      delay *= 2;
+    }
   }
   else {
     double elapse = (double) Clock::elapse() / AV_TIME_BASE;
-    delay =
-      AV_TIME_BASE / av_q2d(config_.video.frame_rate) / config_.common.speed;
+    delay = 1.0f / av_q2d(config_.video.frame_rate) / config_.common.speed;
     delay = FFMAX(0, delay - elapse);
-  }
-
-  // diff = V - A
-  if (diff < -0.3f) {
-    delay /= 2;
-  }
-  else if (diff > 0.3f) {
-    delay *= 2;
   }
 
   auto curr = getCurrentTime();
@@ -1056,13 +1074,10 @@ void FFmpegPlayer::doVideoDisplay() {
   int r;
   while (!isAborted()) {
     if (is_native_mode) doEventLoop();
-    // if (is_eof_ && video_frame_queue_.isEmpty() &&
-    // video_packet_queue_.isEmpty()) {
-    //   is_aborted_ = true;
-    //   break;
-    // }
-    if (getTotalTime() - getCurrentTime() < 0.3f) {
-      is_aborted_ = true;
+    if (!is_streaming_) {
+      if (getTotalTime() - getCurrentTime() < 0.3f) {
+        is_aborted_ = true;
+      }
     }
     if (isPaused()) {
       continue;

@@ -34,7 +34,7 @@ static void version() {
     swscale_version());
 }
 
-static void init() {
+static void ffinit() {
   avdevice_register_all();
   avformat_network_init();
 }
