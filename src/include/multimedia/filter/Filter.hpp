@@ -1,11 +1,13 @@
 #pragma once
 
+#include <memory>
+#include "multimedia/FFmpegUtil.hpp"
 class Filter
 {
 public:
+  using ptr = std::shared_ptr<Filter>;
+
   Filter() = default;
   virtual ~Filter() = default;
-  virtual void run() = 0;
-
-protected:
+  virtual int run(AVFramePtr in, AVFramePtr out) = 0;
 };

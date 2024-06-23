@@ -11,6 +11,7 @@ extern "C"
 #include <libavutil/time.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mathematics.h>
+#include <libavutil/rational.h>
 #include <libpostproc/postprocess.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>

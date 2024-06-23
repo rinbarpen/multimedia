@@ -1,5 +1,7 @@
 #pragma once
 
+#include "multimedia/MediaSource.hpp"
+#include "multimedia/common/Bit.hpp"
 #include "multimedia/common/ConditionVariable.hpp"
 #include "multimedia/AVQueue.hpp"
 #include "multimedia/AVThread.hpp"
@@ -11,11 +13,12 @@ public:
   FFmpegRecorder() = default;
   ~FFmpegRecorder() = default;
 
-  bool init(RecordConfig config) override;
-  bool open(const std::string &url, const std::string &shortName) override;
+  bool init(RecorderConfig config) override;
+  bool open(const MediaSource &source) override;
   void close() override;
   void record() override;
-  void stop() override;
+  void pause() override;
+  void resume() override;
 
 private:
   void onRead();
@@ -53,13 +56,14 @@ private:
   };
 
   AVGroup in_, out_;
-  AVThread read_thread_;
-  AVThread video_write_thread_;
-  AVThread audio_write_thread_;
-  AVThread write_thread_;
+  AVThread read_thread_{"ReadThread"};
+  AVThread video_write_thread_{"VideoWriteThread"};
+  AVThread audio_write_thread_{"AudioWriteThread"};
+  AVThread write_thread_{"WriteThread"};
   ConditionVariable cond_read_;
   ConditionVariable cond_write_;
   AVPacketQueue in_packets_;
+  Bit need2pause_;
   bool is_eof_{false};
   bool is_aborted_{false};
   bool need_write_tail_{false};

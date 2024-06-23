@@ -1,35 +1,53 @@
+#include <cassert>
+#include "multimedia/MediaSource.hpp"
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/OSUtil.hpp"
 #include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/common/StringUtil.hpp"
 #include "multimedia/recorder/FFmpegRecoder.hpp"
-#include <cassert>
+#include "multimedia/recorder/Recorder.hpp"
 
 
 static auto g_FFmpegRecorderLogger = GET_LOGGER3("multimedia.FFmpegRecorder");
 
-bool FFmpegRecorder::init(RecordConfig config) {
+bool FFmpegRecorder::init(RecorderConfig config) {
   config_ = config;
+  state_ = READY;
   return true;
 }
 
 bool FFmpegRecorder::open(
-  const std::string &url, const std::string &shortName) {
-  if (!openInputStream(url, shortName)) {
+  const MediaSource &source) {
+  if (state_ != READY) {
     close();
     return false;
   }
+
+  if (!openInputStream(source.getUrl(), source.getDeviceName())) {
+    close();
+    return false;
+  }
+  output_filename_ = source.getDeviceName() + "_" + source.getUrl();
+  string_util::replace(output_filename_, "/\\: ", "／＼：_");
   if (!openOutputStream(output_filename_)) {
     close();
     return false;
   }
 
-  state_ = READY;
-  url_ = url;
-  short_name_ = shortName;
+  source_ = source;
+  state_ = READY2RECORD;
+
   return true;
 }
 
 void FFmpegRecorder::close() {
+  if (state_ <= READY) return;
+
+  if (state_ == RECORDING || state_ == PAUSED) {
+    is_aborted_ = true;
+    read_thread_.stop();
+    write_thread_.stop();
+  }
   if (out_.format_context && out_.format_context->pb) {
     if (need_write_tail_) {
       av_write_trailer(out_.format_context);
@@ -40,25 +58,38 @@ void FFmpegRecorder::close() {
 
   in_.cleanup();
   out_.cleanup();
-  output_filename_ = "";
+  output_filename_.clear();
 
   is_eof_ = is_aborted_ = false;
-  state_ = NONE;
+  state_ = READY;
 }
 void FFmpegRecorder::record() {
-  write_thread_.dispatch(&FFmpegRecorder::onWrite, this);
+  if (state_ == READY2RECORD) {
+    read_thread_.dispatch(&FFmpegRecorder::onRead, this);
+    write_thread_.dispatch(&FFmpegRecorder::onWrite, this);
+    state_ = RECORDING;
+  }
 }
-void FFmpegRecorder::stop() {
-  is_aborted_ = true;
-  write_thread_.stop();
+void FFmpegRecorder::pause() {
+  need2pause_.set();
 }
-
+void FFmpegRecorder::resume() {
+  need2pause_.unset();
+}
 
 void FFmpegRecorder::onRead() {
   int r;
-  while (true) {
-    if (is_eof_) {
-      break;
+  while (!is_aborted_) {
+    if (need2pause_) {
+      if (state_ == RECORDING) {
+        av_read_pause(in_.format_context);
+        state_ = PAUSED;
+      }
+      else if (state_ == PAUSED) {
+        av_read_play(in_.format_context);
+        state_ = RECORDING;
+      }
+      need2pause_.unset();
     }
 
     auto pPkt = makeAVPacket();
@@ -149,8 +180,20 @@ bool FFmpegRecorder::openInputStream(
 
     return false;
   }
+
+  AVDictionary *opt = nullptr;
+  if (config_.device.is_camera) {}
+  else {
+    auto &grabber = config_.device.grabber;
+    av_dict_set_int(&opt, "framerate", config_.video.frame_rate, AV_DICT_MATCH_CASE);
+    av_dict_set_int(&opt, "draw_mouse", grabber.draw_mouse, AV_DICT_MATCH_CASE);
+    if (grabber.width > 0 && grabber.height > 0)
+      av_dict_set(
+        &opt, "video_size", grabber.video_size().c_str(), AV_DICT_MATCH_CASE);
+  }
+
   r = avformat_open_input(
-    &in_.format_context, url.c_str(), pInputFormat, nullptr);
+    &in_.format_context, url.c_str(), pInputFormat, &opt);
   if (r < 0) {
     ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avformat_open_input() failed");
 
@@ -235,12 +278,6 @@ bool FFmpegRecorder::openInputStream(
 bool FFmpegRecorder::openOutputStream(const std::string &filename) {
   int r;
 
-  if (filename.empty()) {
-    output_filename_ = in_.format_context->url;
-  }
-  else {
-    output_filename_ = filename;
-  }
   if (!os_api::exist_dir(config_.common.output_dir)) {
     os_api::mkdir(config_.common.output_dir);
   }
@@ -248,7 +285,7 @@ bool FFmpegRecorder::openOutputStream(const std::string &filename) {
   //   os_api::touch(output_filename_);
   // }
 
-  auto outputRealFilePath = config_.common.output_dir + "/" + output_filename_;
+  auto outputRealFilePath = config_.common.output_dir + "/" + filename;
   r = avformat_alloc_output_context2(
     &out_.format_context, nullptr, nullptr, outputRealFilePath.c_str());
   if (r < 0 || out_.format_context == nullptr) {
@@ -261,7 +298,7 @@ bool FFmpegRecorder::openOutputStream(const std::string &filename) {
   if (config_.isEnableVideo()) {
     out_.video_stream = avformat_new_stream(out_.format_context, nullptr);
     if (in_.video_stream->time_base.num == 0) {
-      out_.video_stream->time_base = AVRational{config_.video.fps, 1};
+      out_.video_stream->time_base = AVRational{1, config_.video.frame_rate};
     }
     else {
       out_.video_stream->time_base = in_.video_stream->time_base;
@@ -275,8 +312,8 @@ bool FFmpegRecorder::openOutputStream(const std::string &filename) {
     }
     
     out_.video_codec_context->pix_fmt = AV_PIX_FMT_YUV420P;
-    out_.video_codec_context->time_base = {1, config_.video.fps};
-    out_.video_codec_context->framerate = {config_.video.fps, 1};
+    out_.video_codec_context->time_base = {1, config_.video.frame_rate};
+    out_.video_codec_context->framerate = {config_.video.frame_rate, 1};
     out_.video_codec_context->bit_rate = config_.video.bit_rate;
     out_.video_codec_context->gop_size = config_.video.gop;
     out_.video_codec_context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;

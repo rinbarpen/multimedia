@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -12,6 +13,7 @@
 #include "multimedia/Player.hpp"
 #include "multimedia/filter/Resampler.hpp"
 #include "multimedia/filter/Converter.hpp"
+#include "multimedia/recorder/FFmpegRecoder.hpp"
 
 #include <SDL2/SDL.h>
 
@@ -34,7 +36,6 @@ public:
   ~FFmpegPlayer();
 
   bool init(PlayerConfig config) override;
-  void stop() override;
   bool replay() override;
   bool pause() override;
   void seek(double pos) override;
@@ -65,6 +66,9 @@ private:
   void onReadFrame();
   void onAudioDecode();
   void onVideoDecode();
+
+  void setUpWriteThread();
+  void onWriteFile();
 
   int decodeAudioFrame(AVFramePtr &pOutFrame);
   bool decodeVideoFrame(AVFramePtr &pOutFrame);
@@ -123,6 +127,8 @@ private:
   AVThread video_decode_thread_{"VideoDecodeThread"};
   AVThread play_thread_{"PlayThread"};  
 
+  std::ofstream writer_;
+
   std::unique_ptr<Resampler> resampler_;
   std::unique_ptr<Converter> converter_;
 
@@ -146,4 +152,6 @@ private:
   } audio_hw_params;
 
   std::unique_ptr<AudioBuffer> audio_buffer_;
+
+  std::unique_ptr<FFmpegRecorder> recorder_;
 };

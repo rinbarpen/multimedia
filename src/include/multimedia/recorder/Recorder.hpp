@@ -1,16 +1,43 @@
 #pragma once
 
 #include <string>
+#include "multimedia/MediaSource.hpp"
 #include "multimedia/common/noncopyable.hpp"
+#include "multimedia/common/Math.hpp"
 
-struct RecordConfig
+#include <yaml-cpp/yaml.h>
+#if defined(_WIN32)
+# include <Windows.h>
+#elif defined(__linux__)
+# include <X11/Xlib.h>
+#endif
+
+struct RecorderConfig
 {
+  RecorderConfig() {
+#if defined(_WIN32)
+    video.max_width = GetSystemMetrics(SM_CXSCREEN);
+    video.max_height = GetSystemMetrics(SM_CYSCREEN);
+#elif defined(__linux__)
+    auto pXWindow = XOpenDisplay(nullptr);
+    if (pXWindow) {
+      int screenId = XDefaultScreen(pXWindow);
+      video.max_width = XDisplayWidth(pXWindow, screenId);
+      video.max_height = XDisplayHeight(pXWindow, screenId);
+      XCloseDisplay(pXWindow);
+    }
+#endif
+    video.sample_aspect_ratio = {video.max_width, video.max_height};
+  }
   struct video {
     int width{1920};
     int height{1080};
-    int fps{25};
+    int frame_rate{25};
     int bit_rate{800*1000};
     int gop{10};
+    int max_width;
+    int max_height;
+    AVRational sample_aspect_ratio;
   } video;
   struct audio {
     int sample_rate{44800};
@@ -27,8 +54,19 @@ struct RecordConfig
     bool enable_audio{true};
   } common;
 
+  DeviceConfig device;
+
   bool check() const {
     return !common.output_dir.empty();
+  }
+
+  // TODO:
+  void setVBitRate() {
+    int w = video.width;
+    int h = video.height;
+  }
+  // TODO:
+  void setSampleRate() {
   }
 
   bool isEnableAudioAndVideo() const {
@@ -42,34 +80,34 @@ struct RecordConfig
   }
 };
 
-
 class Recorder : public noncopyable
 {
 public:
   enum State {
     NONE,
     READY,
+    READY2RECORD,
     RECORDING,
     PAUSED,
+    FINISHED,
   };
 
   Recorder() = default;
   virtual ~Recorder() = default;
 
-  virtual bool init(RecordConfig config) = 0;
-  virtual bool open(const std::string &url, const std::string &shortName) = 0;
+  virtual bool init(RecorderConfig config) = 0;
+  virtual bool open(const MediaSource &source) = 0;
   virtual void close() = 0;
   virtual void record() = 0;
-  virtual void stop() = 0;
+  virtual void pause() = 0;
+  virtual void resume() = 0;
   void setOutputDir(const std::string &dir) { config_.common.output_dir = dir; }
-  void setOutputFileName(const std::string &filename) { output_filename_ = filename; }
-  std::string getOutputFileName() const { return output_filename_; }
-  std::string getRecordFilePath() const { return config_.common.output_dir + "/" + output_filename_; }
+
+  bool isRecording() const { return state_ == RECORDING; }
 
 protected:
   State state_{NONE};
-  RecordConfig config_;
-  std::string url_;
-  std::string short_name_;
+  RecorderConfig config_;
+  MediaSource source_;
   std::string output_filename_;
 };

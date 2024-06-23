@@ -1,12 +1,11 @@
 ﻿#include "multimedia/FFmpegPlayer.hpp"
-
-#include <SDL2/SDL_keycode.h>
-
 #include "multimedia/AudioBuffer.hpp"
 #include "multimedia/MediaList.hpp"
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/Math.hpp"
 #include "multimedia/common/Time.hpp"
+#include "multimedia/recorder/FFmpegRecoder.hpp"
+#include "multimedia/recorder/Recorder.hpp"
 
 #define AV_SYNC_THRESHOLD_MIN           0.04
 #define AV_SYNC_THRESHOLD_MAX           0.1
@@ -30,6 +29,7 @@ FFmpegPlayer::FFmpegPlayer(AudioDevice audioDevice, VideoDevice videoDevice)
   , video_device_(videoDevice) {
   SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO);
   audio_buffer_.reset(new AudioBuffer(48000 * 4 * 1 * 3));
+  recorder_.reset(new FFmpegRecorder());
   openVideo();
 }
 FFmpegPlayer::~FFmpegPlayer() {
@@ -80,6 +80,7 @@ void FFmpegPlayer::destroy() {
 
   resampler_.release();
   converter_.release();
+
   is_eof_.unset();
   is_aborted_.unset();
   is_streaming_.unset();
@@ -107,6 +108,7 @@ bool FFmpegPlayer::close() {
   read_thread_.stop();
   video_decode_thread_.stop();
   audio_decode_thread_.stop();
+  if (recorder_->isRecording()) recorder_->close();
 
   destroy();
 
@@ -275,13 +277,15 @@ bool FFmpegPlayer::openDevice(
   }
 
   AVDictionary *opt = nullptr;
-  if (device_config_.is_camera) {
-  }
+  if (device_config_.is_camera) {}
   else {
+    auto &grabber = device_config_.grabber;
     av_dict_set_int(&opt, "framerate",
       std::lround(av_q2d(config_.video.frame_rate)), AV_DICT_MATCH_CASE);
-    av_dict_set_int(&opt, "draw_mouse", device_config_.grabber.draw_mouse,
-      AV_DICT_MATCH_CASE);
+    av_dict_set_int(&opt, "draw_mouse", grabber.draw_mouse, AV_DICT_MATCH_CASE);
+    if (grabber.width > 0 && grabber.height > 0)
+      av_dict_set(
+        &opt, "video_size", grabber.video_size().c_str(), AV_DICT_MATCH_CASE);
   }
 
   r = avformat_open_input(&format_context_, url.c_str(), pInputFormat, &opt);
@@ -412,6 +416,24 @@ bool FFmpegPlayer::openDevice(
 bool FFmpegPlayer::play() {
   if (state_ != READY2PLAY) return false;
 
+  if (config_.common.save_while_playing) {
+    if (isNetworkStream()) {
+      RecorderConfig recorder_config;
+      recorder_config.video.width = config_.video.width;
+      recorder_config.video.height = config_.video.height;
+      recorder_config.video.max_width = config_.video.max_width;
+      recorder_config.video.max_height = config_.video.max_height;
+      recorder_config.video.sample_aspect_ratio = config_.video.sample_aspect_ratio;
+      recorder_config.device = device_config_;
+      recorder_config.common.enable_video = config_.common.enable_video;
+      recorder_config.common.enable_audio = config_.common.enable_audio;
+
+      recorder_->init(recorder_config);
+      recorder_->open(list_.get(list_.current()));
+      recorder_->record();
+    }
+  }
+
   if (isEnableAudio()) {
     audio_frame_queue_.open();
     audio_packet_queue_.open();
@@ -455,42 +477,18 @@ bool FFmpegPlayer::play() {
 }
 
 bool FFmpegPlayer::replay() {
-  if (!isPaused()) return false;
-
   need2pause_.unset();
-  if (isEnableAudio()) {
-    SDL_LockAudioDevice(device_id_);
-    SDL_PauseAudioDevice(device_id_, 0);
-    SDL_UnlockAudioDevice(device_id_);
-  }
-  if (isNetworkStream()) av_read_play(format_context_);
-
-  state_ = PLAYING;
   return true;
 }
 
 bool FFmpegPlayer::pause() {
   // PLAYING, READY2PLAY
-  if (state_ != PLAYING || state_ != READY2PLAY) return false;
-
   need2pause_.set();
-  last_paused_time_ = getCurrentTime();
-  if (isEnableAudio()) {
-    SDL_LockAudioDevice(device_id_);
-    SDL_PauseAudioDevice(device_id_, 1);
-    SDL_UnlockAudioDevice(device_id_);
-  }
-  if (isNetworkStream()) av_read_pause(format_context_);
-  state_ = PAUSED;
   return true;
 }
 
-void FFmpegPlayer::stop() {
-  close();
-}
-
 void FFmpegPlayer::play(const MediaList &list) {
-  if (list.isEmpty()) return ;
+  if (list.isEmpty()) return;
 
   list_ = list;
   do {
@@ -511,14 +509,13 @@ void FFmpegPlayer::play(const MediaList &list) {
       openDevice(media.getUrl(), media.getDeviceName());
     }
     play();
-    if (!config_.isSignalLoop()) 
-      list_.next();
+    if (!config_.isSignalLoop()) list_.next();
   } while (config_.common.auto_read_next_media);
 }
 void FFmpegPlayer::play(const MediaSource &media) {
   list_.clear();
   list_.add(media);
-  
+
   do {
     size_t idx = list_.current();
     if (idx >= list_.size()) {
@@ -537,18 +534,17 @@ void FFmpegPlayer::play(const MediaSource &media) {
       openDevice(media.getUrl(), media.getDeviceName());
     }
     play();
-    if (!config_.isSignalLoop()) 
-      list_.next();
+    if (!config_.isSignalLoop()) list_.next();
   } while (config_.common.auto_read_next_media);
 }
-  
+
 void FFmpegPlayer::playPrev() {
   list_.prev();
-  play(list_.get(list_.current()).getUrl()); 
+  play(list_.get(list_.current()).getUrl());
 }
 void FFmpegPlayer::playNext() {
   list_.next();
-  play(list_.get(list_.current()).getUrl()); 
+  play(list_.get(list_.current()).getUrl());
 }
 
 
@@ -579,6 +575,31 @@ bool FFmpegPlayer::check(PlayerConfig &config) const {
 void FFmpegPlayer::onReadFrame() {
   int r;
   while (!is_aborted_) {
+    if (need2pause_) {
+      if (isPlaying()) {
+        last_paused_time_ = getCurrentTime();
+        if (isEnableAudio()) {
+          SDL_LockAudioDevice(device_id_);
+          SDL_PauseAudioDevice(device_id_, 1);
+          SDL_UnlockAudioDevice(device_id_);
+        }
+        if (isNetworkStream()) av_read_pause(format_context_);
+        recorder_->pause();
+        state_ = PAUSED;
+      }
+      else if (isPaused()) {
+        if (isEnableAudio()) {
+          SDL_LockAudioDevice(device_id_);
+          SDL_PauseAudioDevice(device_id_, 0);
+          SDL_UnlockAudioDevice(device_id_);
+        }
+        if (isNetworkStream()) av_read_play(format_context_);
+        recorder_->resume();
+        state_ = PLAYING;
+      }
+      need2pause_.unset();
+    }
+
     if (need2seek_) {
       pause();
       int64_t seekTarget = seek_pos_;
@@ -720,7 +741,7 @@ int FFmpegPlayer::decodeAudioFrame(AVFramePtr &pOutFrame) {
   success = resampler_->init(in, out);
   if (!success) return -1;
 
-  auto dataSize = resampler_->resample(pFrame, pOutFrame);
+  auto dataSize = resampler_->run(pFrame, pOutFrame);
   audio_clock_.set(pFrame->pts * av_q2d(audio_stream_->time_base)
                    + (double) pFrame->nb_samples / pFrame->sample_rate);
   return dataSize;
@@ -757,7 +778,7 @@ bool FFmpegPlayer::decodeVideoFrame(AVFramePtr &pOutFrame) {
   pOutFrame->width = out.width;
   pOutFrame->height = out.height;
   pOutFrame->format = out.format;
-  success = converter_->convert(pFrame, pOutFrame);
+  success = converter_->run(pFrame, pOutFrame) >= 0;
   if (!success) {
     av_freep(pOutFrame->data);
     video_clock_.set(pFrame->pts * av_q2d(video_stream_->time_base));
@@ -985,12 +1006,8 @@ void FFmpegPlayer::doEventLoop() {
         exit(0);
       case SDL_KEYDOWN:
         switch (event.key.keysym.sym) {
-        case SDLK_q: 
-          playPrev();
-          break;
-        case SDLK_e:
-          playNext();
-          break;
+        case SDLK_q: playPrev(); break;
+        case SDLK_e: playNext(); break;
         case SDLK_SPACE:
         {
           if (isPaused())
@@ -1120,6 +1137,10 @@ void FFmpegPlayer::doVideoDisplay() {
         SDL_DestroyTexture(pTexture);
       }
     } while (0);
+
+    // if (is_streaming_ && config_.common.save_while_playing) {
+      
+    // } 
 
     av_freep(pOutFrame->data);
     doVideoDelay();

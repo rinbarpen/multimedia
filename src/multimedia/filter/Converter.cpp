@@ -1,10 +1,15 @@
 #include "multimedia/filter/Converter.hpp"
+#include <memory>
 
-Converter::Converter() {}
+Converter::Converter() : Filter() {}
 Converter::~Converter() {
   if (sws_context_) {
     sws_freeContext(sws_context_);
   }
+}
+
+Converter::ptr create() {
+  return std::make_shared<Converter>();
 }
 
 bool Converter::init(Converter::Info in, Converter::Info out) {
@@ -26,11 +31,11 @@ bool Converter::isDirty(Converter::Info &out) const {
   return last_.format != out.format || last_.height != out.height
          || last_.width != out.width;
 }
-bool Converter::convert(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
+int Converter::run(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
   int r = av_image_alloc(pOutFrame->data, pOutFrame->linesize, pOutFrame->width,
     pOutFrame->height, (AVPixelFormat)pOutFrame->format, 1);
-  if (r < 0) return false;
+  if (r < 0) return r;
 
   return sws_scale(sws_context_, pInFrame->data, pInFrame->linesize, 0,
-           pInFrame->height, pOutFrame->data, pOutFrame->linesize) >= 0;
+           pInFrame->height, pOutFrame->data, pOutFrame->linesize);
 }

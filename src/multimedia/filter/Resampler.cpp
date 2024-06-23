@@ -1,11 +1,16 @@
 ﻿#include "multimedia/filter/Resampler.hpp"
+#include "multimedia/filter/Filter.hpp"
 
-Resampler::Resampler() {}
+Resampler::Resampler() : Filter() {}
 Resampler::~Resampler() {
   if (swr_context_ && swr_is_initialized(swr_context_)) {
     swr_free(&swr_context_);
     swr_context_ = nullptr;
   }
+}
+
+Resampler::ptr Resampler::create() {
+  return std::make_shared<Resampler>();
 }
 
 bool Resampler::init(Info in, Info out) {
@@ -37,7 +42,7 @@ bool Resampler::init(Info in, Info out) {
   return true;
 }
 
-int Resampler::resample(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
+int Resampler::run(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
   int64_t outCount = (int64_t) pInFrame->nb_samples * pOutFrame->sample_rate
                        / pInFrame->sample_rate
                      + 256;

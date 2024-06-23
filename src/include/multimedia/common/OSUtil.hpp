@@ -26,6 +26,11 @@
 
 namespace os_api
 {
+// #if defined (__LINUX__)
+// using path_str = std::string;
+// #elif defined(__WIN__) 
+// using path_str = std::wstring;
+// #endif 
 namespace detail
 {
 static int lstat(const char *file, struct stat *st = nullptr) {
@@ -155,10 +160,6 @@ static bool exist_dir(const std::string &path) {
 }
 
 static bool touch(const std::string &filename, int oflag = 0644) {
-  if (exist_file(filename.c_str())) {
-    return false;
-  }
-
   char *path = ::strdup(filename.c_str());
   char *ptr = ::strchr(path + 1, '/');
   for (; ptr; *ptr = '/', ptr = strchr(ptr + 1, '/')) {
@@ -180,10 +181,6 @@ static bool touch(const std::string &filename, int oflag = 0644) {
   return true;
 }
 static bool mkdir(const std::string &dirname) {
-  if (exist_dir(dirname.c_str()) == 0) {
-    return true;
-  }
-
   char *path = ::strdup(dirname.c_str());
   char *ptr = ::strchr(path + 1, '/');
   for (; ptr; *ptr = '/', ptr = strchr(ptr + 1, '/')) {
@@ -306,8 +303,6 @@ static bool is_executing_file(const std::string &pidfile) {
   return true;
 }
 static bool unlink(const std::string &filename) {
-  if (exist_file(filename)) return true;
-
   return ::unlink(filename.c_str()) == 0;
 }
 static bool rm(const std::string &path) {
@@ -372,7 +367,7 @@ static bool rm(const std::string &path) {
  * @param from
  * @param to
  * @return bool
- *
+ * TODO:
  */
 static bool move(const std::string &from, const std::string &to) {
   if (!rm(to)) {

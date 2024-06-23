@@ -14,6 +14,13 @@ struct DeviceConfig
   struct grabber
   {
     bool draw_mouse{true};
+    int offset_x{-1};
+    int offset_y{-1};
+    int width{-1}, height{-1};
+
+    std::string video_size() const {
+      return std::to_string(width) + "x" + std::to_string(height);
+    }
   } grabber;
 
   bool is_camera;
@@ -31,5 +38,5 @@ public:
   std::string name() const { return name_; }
 
 private:  
-  std::string name_; 
+  std::string name_;
 };

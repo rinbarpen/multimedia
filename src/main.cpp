@@ -23,15 +23,11 @@ int main(int argc, char *argv[]) {
 
   ffinit();
 
-  // std::vector<std::string> list = {
-  //   "rtsp://127.0.0.1/live/test"};
-
   DeviceConfig dconfig;
   dconfig.grabber.draw_mouse = 1;
   dconfig.is_camera = true;
   MediaSource cameraGarb = {"video=USB2.0 HD UVC WebCam", "dshow", dconfig};
   MediaSource desktopGarb = {"desktop", "gdigrab", dconfig};
-
 
   MediaList list;
 //  list.add(MediaSource{"/home/youmu/Desktop/227.mp4"});
@@ -44,6 +40,7 @@ int main(int argc, char *argv[]) {
   FFmpegPlayer player(AudioDevice::SDL, VideoDevice::SDL);
   config.common.loop = LoopType::LOOP_LIST;
   config.common.auto_read_next_media = true;
+  config.common.save_while_playing = true;
   player.init(config);
   //player.play(list);
   player.play(cameraGarb);

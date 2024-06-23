@@ -307,4 +307,16 @@ static auto convert(std::string_view s,
   // R"(/\!<>:*?"|\n\t\r\f\v)";
 }
 
+static void replace(std::string &s, std::string_view from, std::string_view to) {
+  size_t p = 0, lastp = 0;
+  for (size_t i = 0; i < s.length(); ++i) {
+    for (size_t j = 0; j < from.length(); ++j) {
+      if (from[j] == s[i]) {
+        s[i] = to[j];
+        break;
+      }
+    }
+  }
+}
+
 } // namespace string_util

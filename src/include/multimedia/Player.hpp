@@ -24,13 +24,13 @@ struct PlayerConfig
     video.max_width = GetSystemMetrics(SM_CXSCREEN);
     video.max_height = GetSystemMetrics(SM_CYSCREEN);
 #elif defined(__linux__)
-    auto pXWindow = XOpenDisplay(NULL);
+    auto pXWindow = XOpenDisplay(nullptr);
     if (pXWindow) {
       int screenId = XDefaultScreen(pXWindow);
       video.max_width = XDisplayWidth(pXWindow, screenId);
       video.max_height = XDisplayHeight(pXWindow, screenId);
+      XCloseDisplay(pXWindow);
     }
-    XCloseDisplay(pXWindow);
 #endif
     video.sample_aspect_ratio = {video.max_width, video.max_height};
 
@@ -97,7 +97,8 @@ struct PlayerConfig
     float speed{1.0f};
     LoopType loop{LoopType::NO_LOOP};
     Bit auto_read_next_media{false};
-    Bit save_while_playing{false};  // 播放设备流时有效
+    Bit save_while_playing{false};  // 播放设备流网络流时有效
+    std::string save_file;
     
     YAML::Node dump2Yaml() const {
       YAML::Node common;
@@ -190,7 +191,6 @@ public:
   virtual bool init(PlayerConfig config) = 0;
   virtual bool pause() = 0;
   virtual bool replay() = 0;
-  virtual void stop() = 0;
   virtual void seek(double pos) = 0;
   virtual double getTotalTime() const = 0;
   virtual double getCurrentTime() const = 0;

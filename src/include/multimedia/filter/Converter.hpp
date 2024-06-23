@@ -1,10 +1,13 @@
 #pragma once
 
+#include <memory>
 #include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/filter/Filter.hpp"
 
-class Converter
+class Converter : public Filter
 {
 public:
+  using ptr = std::shared_ptr<Converter>;
   struct Info{
     int width;
     int height;
@@ -14,8 +17,10 @@ public:
   Converter();
   ~Converter();
 
+  static Converter::ptr create();
+
   bool init(Info in, Info out);
-  bool convert(AVFramePtr pInFrame, AVFramePtr pOutFrame);
+  int run(AVFramePtr pInFrame, AVFramePtr pOutFrame);
 
 private:
   bool isDirty(Info &out) const;

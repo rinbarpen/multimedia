@@ -44,8 +44,9 @@ if(WIN32)
   set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/win32/6.1n")
   set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib")
 else()
-  set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/linux/6.1n")
+  set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/linux")
   set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib")
+#  find_package(FFmpeg COMPONENTS SDL2 REQUIRED)
 endif()
 set(FFMPEG_LIBRARIES
   avcodec

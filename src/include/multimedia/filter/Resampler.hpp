@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/filter/Filter.hpp"
 
-class Resampler
-{
+class Resampler : public Filter {
 public:
+  using ptr = std::shared_ptr<Resampler>;
   struct Info{
     int sample_rate;
 //    AVChannelLayout ch_layout;
@@ -14,8 +16,10 @@ public:
   Resampler();
   ~Resampler();
 
+  static Resampler::ptr create();
+
   bool init(Info in, Info out);
-  int resample(AVFramePtr pInFrame, AVFramePtr pOutFrame);
+  int run(AVFramePtr pInFrame, AVFramePtr pOutFrame);
 
 private:
   bool isDirty(Info &out) const;
