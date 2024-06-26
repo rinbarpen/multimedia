@@ -1,7 +1,5 @@
 #pragma once
 
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
 #include <string>
 #include "multimedia/AVQueue.hpp"
 #include "multimedia/AVThread.hpp"
@@ -25,6 +23,4 @@ private:
 
 private:
   std::string output_filename_;
-  AVThread write_thread_;
-  AVFrameQueue frames_;
 };

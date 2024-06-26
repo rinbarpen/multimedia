@@ -2,6 +2,7 @@
 #include "multimedia/MediaSource.hpp"
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/OSUtil.hpp"
+#include "multimedia/common/Math.hpp"
 #include "multimedia/FFmpegUtil.hpp"
 #include "multimedia/common/StringUtil.hpp"
 #include "multimedia/recorder/FFmpegRecoder.hpp"
@@ -9,6 +10,11 @@
 
 
 static auto g_FFmpegRecorderLogger = GET_LOGGER3("multimedia.FFmpegRecorder");
+
+FFmpegRecorder::FFmpegRecorder() : Recorder() {}
+FFmpegRecorder::~FFmpegRecorder() {
+  close();
+}
 
 bool FFmpegRecorder::init(RecorderConfig config) {
   config_ = config;
@@ -28,15 +34,19 @@ bool FFmpegRecorder::open(
     return false;
   }
   output_filename_ = source.getDeviceName() + "_" + source.getUrl();
-  string_util::replace(output_filename_, "/\\: ", "／＼：_");
-  if (!openOutputStream(output_filename_)) {
+  //output_filename_ = string_util::convert(output_filename_, { 
+  //  {"/", "／"}, 
+  //  {"\\", "＼"}, 
+  //  {":", "："}, 
+  //  {" ", "_"}
+  //});
+  if (!openOutputStream(source.getUrl())) {
     close();
     return false;
   }
 
-  source_ = source;
   state_ = READY2RECORD;
-
+  source_ = source;
   return true;
 }
 
@@ -46,6 +56,10 @@ void FFmpegRecorder::close() {
   if (state_ == RECORDING || state_ == PAUSED) {
     is_aborted_ = true;
     read_thread_.stop();
+    if (config_.isEnableAudio()) 
+      audio_decode_thread_.stop();
+    if (config_.isEnableVideo())
+      video_decode_thread_.stop();
     write_thread_.stop();
   }
   if (out_.format_context && out_.format_context->pb) {
@@ -60,14 +74,23 @@ void FFmpegRecorder::close() {
   out_.cleanup();
   output_filename_.clear();
 
-  is_eof_ = is_aborted_ = false;
+  is_aborted_ = false;
   state_ = READY;
 }
 void FFmpegRecorder::record() {
   if (state_ == READY2RECORD) {
+    if (config_.isEnableAudioAndVideo()) {
+      throw 0;
+      return;
+    }
     read_thread_.dispatch(&FFmpegRecorder::onRead, this);
+    if (config_.isEnableAudio()) 
+      audio_decode_thread_.dispatch(&FFmpegRecorder::onAudioFrameDecode, this);
+    if (config_.isEnableVideo()) 
+      video_decode_thread_.dispatch(&FFmpegRecorder::onVideoFrameDecode, this);
+    
     write_thread_.dispatch(&FFmpegRecorder::onWrite, this);
-    state_ = RECORDING;
+    state_ = RECORDING; 
   }
 }
 void FFmpegRecorder::pause() {
@@ -94,16 +117,16 @@ void FFmpegRecorder::onRead() {
 
     auto pPkt = makeAVPacket();
     r = av_read_frame(in_.format_context, pPkt.get());
-    if (AVERROR_EOF == r) {
-      avcodec_send_packet(in_.video_codec_context, nullptr);
+    if (AVERROR(EAGAIN) == r) {
+      continue;
     }
-    else if (0 != r) {
-      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "av_read_frame() failed");
+    if (AVERROR_EOF == r) {
+      ILOG_INFO_FMT(g_FFmpegRecorderLogger, "read End of Frame");
       break;
     }
-    else {
-      r = avcodec_send_packet(in_.video_codec_context, pPkt.get());
-      if (r == AVERROR(EAGAIN)) {}
+    else if (r < 0) {
+      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "av_read_frame() failed");
+      break;
     }
 
     in_packets_.push(pPkt);
@@ -123,7 +146,12 @@ void FFmpegRecorder::onWrite() {
   auto pOutputVideoStream = out_.video_stream;
   assert(pInputVideoStream && pOutputVideoStream);
   while (!is_aborted_) {
-    auto pPkt = makeAVPacket();
+    AVFramePtr pFrame;
+    if (!in_frames_.pop(pFrame)) {
+      continue;
+    }
+    
+    AVPacketPtr pPkt = makeAVPacket();
     r = avcodec_receive_packet(out_.video_codec_context, pPkt.get());
     if (r == AVERROR_EOF) {
       ILOG_INFO_FMT(g_FFmpegRecorderLogger, "Stream is over");
@@ -141,13 +169,14 @@ void FFmpegRecorder::onWrite() {
     }
 
     pPkt->stream_index = out_.video_stream_index;
-    pPkt->pts = av_rescale_q_rnd(pPkt->pts, pInputVideoStream->time_base,
+    pPkt->pts = av_rescale_q_rnd(pFrame->pts, pInputVideoStream->time_base,
       pOutputVideoStream->time_base,
       (AVRounding) (AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-    pPkt->dts = av_rescale_q_rnd(pPkt->dts, pInputVideoStream->time_base,
+    pPkt->dts = av_rescale_q_rnd(pFrame->pkt_dts, pInputVideoStream->time_base,
       pOutputVideoStream->time_base,
       (AVRounding) (AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-    pPkt->duration = av_rescale_q(pPkt->duration, pInputVideoStream->time_base, pOutputVideoStream->time_base);
+    pPkt->duration = av_rescale_q(pFrame->duration,
+      pInputVideoStream->time_base, pOutputVideoStream->time_base);
     pPkt->pos = -1;
 
     r = av_interleaved_write_frame(out_.format_context, pPkt.get());
@@ -161,6 +190,64 @@ void FFmpegRecorder::onWrite() {
   if (need_write_tail_) {
     av_write_trailer(out_.format_context);
     need_write_tail_ = false;
+  }
+}
+
+void FFmpegRecorder::onAudioFrameDecode() {
+  int r;
+  while (!is_aborted_) {
+    AVPacketPtr pPkt;
+    if (!in_packets_.pop(pPkt)) {
+      continue;
+    }
+
+    r = avcodec_send_packet(in_.audio_codec_context, pPkt.get());
+    if (r < 0) {
+      ILOG_ERROR_FMT(
+        g_FFmpegRecorderLogger, "Error on sending a packet for decoding");
+      break;
+    }
+    while (true) {
+      auto pFrame = makeAVFrame();
+      r = avcodec_receive_frame(in_.audio_codec_context, pFrame.get());
+      if (r == AVERROR_EOF || r == AVERROR(EAGAIN))
+        break;
+      else if (r < 0) {
+        ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "Audio frame may be broken");
+        break;
+      }
+
+      in_frames_.push(pFrame);
+    }
+  }
+}
+
+void FFmpegRecorder::onVideoFrameDecode() {
+  int r;
+  while (!is_aborted_) {
+    AVPacketPtr pPkt;
+    if (!in_packets_.pop(pPkt)) {
+      continue;
+    }
+
+    r = avcodec_send_packet(in_.video_codec_context, pPkt.get());
+    if (r < 0) {
+      ILOG_ERROR_FMT(
+        g_FFmpegRecorderLogger, "Error on sending a packet for decoding");
+      break;
+    }
+    while (true) {
+      auto pFrame = makeAVFrame();
+      r = avcodec_receive_frame(in_.video_codec_context, pFrame.get());
+      if (r == AVERROR_EOF || r == AVERROR(EAGAIN))
+        break;
+      else if (r < 0) {
+        ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "Video frame  may be broken");
+        break;
+      }
+
+      in_frames_.push(pFrame);
+    }
   }
 }
 
@@ -224,7 +311,6 @@ bool FFmpegRecorder::openInputStream(
     in_.audio_codec_context = avcodec_alloc_context3(nullptr);
     if (in_.audio_codec_context == nullptr) {
       ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avcodec_alloc_context3() failed");
-
       return false;
     }
     r = avcodec_parameters_to_context(
@@ -232,7 +318,6 @@ bool FFmpegRecorder::openInputStream(
     if (r < 0) {
       ILOG_ERROR_FMT(
         g_FFmpegRecorderLogger, "avcodec_parameters_to_context() failed");
-
       return false;
     }
     auto pCodec = avcodec_find_decoder(in_.audio_codec_context->codec_id);
@@ -244,7 +329,6 @@ bool FFmpegRecorder::openInputStream(
     r = avcodec_open2(in_.audio_codec_context, pCodec, nullptr);
     if (r < 0) {
       ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avcodec_open2() failed");
-
       return false;
     }
   }
@@ -272,72 +356,129 @@ bool FFmpegRecorder::openInputStream(
       ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avcodec_open2() failed");
       return false;
     }
+
+    math_api::window_fit(config_.video.width, config_.video.height,
+      in_.video_codec_context->width, in_.video_codec_context->height,
+      config_.video.max_width, config_.video.max_height, 1);
   }
   return true;
 }
-bool FFmpegRecorder::openOutputStream(const std::string &filename) {
+bool FFmpegRecorder::openOutputStream(const std::string &url) {
   int r;
 
   if (!os_api::exist_dir(config_.common.output_dir)) {
     os_api::mkdir(config_.common.output_dir);
   }
-  // if (!os_api::exist_file(output_filename_)) {
-  //   os_api::touch(output_filename_);
-  // }
+  auto outputRealFilePath = config_.common.output_dir + "/" + output_filename_;
+  if (!os_api::exist_file(outputRealFilePath)) {
+    os_api::touch(outputRealFilePath);
+  }
 
-  auto outputRealFilePath = config_.common.output_dir + "/" + filename;
   r = avformat_alloc_output_context2(
     &out_.format_context, nullptr, nullptr, outputRealFilePath.c_str());
   if (r < 0 || out_.format_context == nullptr) {
-    ILOG_ERROR_FMT(
-      g_FFmpegRecorderLogger, "avformat_alloc_output_context2() failed");
-
-    return false;
+    r = avformat_alloc_output_context2(
+      &out_.format_context, nullptr, "mpeg", outputRealFilePath.c_str());
+    if (r < 0 || out_.format_context == nullptr) {
+      ILOG_ERROR_FMT(
+        g_FFmpegRecorderLogger, "avformat_alloc_output_context2() failed");
+      return false;
+    }
   }
 
   if (config_.isEnableVideo()) {
-    out_.video_stream = avformat_new_stream(out_.format_context, nullptr);
-    if (in_.video_stream->time_base.num == 0) {
-      out_.video_stream->time_base = AVRational{1, config_.video.frame_rate};
-    }
-    else {
-      out_.video_stream->time_base = in_.video_stream->time_base;
-    }
-    r = avcodec_parameters_from_context(
-      out_.video_stream->codecpar, out_.video_codec_context);
-    if (r < 0) {
+    auto pCodec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!pCodec) {
       ILOG_ERROR_FMT(
-        g_FFmpegRecorderLogger, "avcodec_parameters_from_context() failed");
+        g_FFmpegRecorderLogger, "Could not find video encoder for H264");
       return false;
     }
-    
-    out_.video_codec_context->pix_fmt = AV_PIX_FMT_YUV420P;
-    out_.video_codec_context->time_base = {1, config_.video.frame_rate};
-    out_.video_codec_context->framerate = {config_.video.frame_rate, 1};
+
+    out_.video_stream = avformat_new_stream(out_.format_context, pCodec);
+    if (!out_.video_stream) {
+      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "Could not allocate video stream");
+      return false;
+    }
+    out_.video_stream->time_base = in_.video_stream->time_base;
+
+    out_.video_codec_context = avcodec_alloc_context3(pCodec);
+    if (!out_.video_codec_context) {
+      ILOG_ERROR_FMT(
+        g_FFmpegRecorderLogger, "Could not allocate video codec context");
+      return false;
+    }
+
+    // Set codec parameters
+    out_.video_codec_context->codec_id = pCodec->id;
     out_.video_codec_context->bit_rate = config_.video.bit_rate;
+    out_.video_codec_context->width = config_.video.width;
+    out_.video_codec_context->height = config_.video.height;
+    out_.video_codec_context->time_base =
+      AVRational{1, config_.video.frame_rate};
+    out_.video_codec_context->framerate =
+      AVRational{config_.video.frame_rate, 1};
     out_.video_codec_context->gop_size = config_.video.gop;
-    out_.video_codec_context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-    out_.video_codec_context->max_b_frames = 1; // 非B帧之间的最大B帧数(有些格式不支持)
-    out_.video_codec_context->qmin = 1;
-    out_.video_codec_context->qmax = 5;
-    out_.video_codec_context->colorspace = AVCOL_SPC_BT470BG;
-    out_.video_codec_context->color_range = AVCOL_RANGE_JPEG;
-    out_.video_codec_context->color_primaries = AVCOL_PRI_BT709;
+    out_.video_codec_context->max_b_frames = 1;
+    out_.video_codec_context->pix_fmt = AV_PIX_FMT_YUV420P;
 
     if (out_.video_codec_context->codec_id == AV_CODEC_ID_H264) {
       av_opt_set(out_.video_codec_context->priv_data, "preset", "ultrafast", 0);
     }
 
-    r = avcodec_open2(out_.video_codec_context,
-      avcodec_find_encoder(AV_CODEC_ID_H264), nullptr);
+    r = avcodec_open2(out_.video_codec_context, pCodec, nullptr);
     if (r < 0) {
-      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avcodec_open2() failed");
+      ILOG_ERROR_FMT(g_FFmpegRecorderLogger,
+        "avcodec_open2() failed for video");
+      return false;
+    }
+
+    // Copy codec parameters to the stream
+    r = avcodec_parameters_from_context(
+      out_.video_stream->codecpar, out_.video_codec_context);
+    if (r < 0) {
+      ILOG_ERROR_FMT(g_FFmpegRecorderLogger,
+        "avcodec_parameters_from_context() failed for video");
       return false;
     }
   }
   if (config_.isEnableAudio()) {
+    auto pCodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+    if (!pCodec) {
+      ILOG_ERROR_FMT(
+        g_FFmpegRecorderLogger, "Could not find audio encoder for ACC");
+      return false;
+    }
+
     out_.audio_stream = avformat_new_stream(out_.format_context, nullptr);
+    if (!out_.audio_stream) {
+      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "Could not allocate audio stream");
+      return false;
+    }
     out_.audio_stream->time_base = in_.audio_stream->time_base;
+
+    out_.audio_codec_context = avcodec_alloc_context3(pCodec);
+    if (!out_.audio_codec_context) {
+      ILOG_ERROR_FMT(
+        g_FFmpegRecorderLogger, "Could not allocate audio codec context");
+      return false;
+    }
+
+    out_.video_codec_context->codec_id = pCodec->id;
+    out_.video_codec_context->bit_rate = config_.audio.bit_rate;
+    out_.video_codec_context->sample_rate = config_.audio.sample_rate;
+    out_.video_codec_context->channels = config_.audio.channels;
+    out_.video_codec_context->channel_layout =
+      av_get_default_channel_layout(config_.audio.channels);
+    out_.video_codec_context->time_base =
+      AVRational{1, config_.audio.sample_rate};
+    out_.video_codec_context->sample_fmt = AV_SAMPLE_FMT_FLTP;
+
+    r = avcodec_open2(
+      out_.audio_codec_context, pCodec, nullptr);
+    if (r < 0) {
+      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avcodec_open2() failed");
+      return false;
+    }
     r = avcodec_parameters_from_context(
       in_.audio_stream->codecpar, out_.audio_codec_context);
     if (r < 0) {
@@ -345,15 +486,9 @@ bool FFmpegRecorder::openOutputStream(const std::string &filename) {
         g_FFmpegRecorderLogger, "avcodec_parameters_from_context() failed");
       return false;
     }
-    r = avcodec_open2(
-      out_.audio_codec_context, avcodec_find_encoder(AV_CODEC_ID_AAC), nullptr);
-    if (r < 0) {
-      ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avcodec_open2() failed");
-      return false;
-    }
   }
 
-  r = avio_open2(&out_.format_context->pb, outputRealFilePath.c_str(),
+  r = avio_open2(&out_.format_context->pb, url.c_str(),
     AVIO_FLAG_WRITE, &out_.format_context->interrupt_callback, nullptr);
   if (r < 0) {
     ILOG_ERROR_FMT(g_FFmpegRecorderLogger, "avio_open2() failed");

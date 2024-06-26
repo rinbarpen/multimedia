@@ -1,11 +1,8 @@
 ﻿#include "multimedia/FFmpegPlayer.hpp"
 #include "multimedia/AudioBuffer.hpp"
-#include "multimedia/MediaList.hpp"
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/Math.hpp"
 #include "multimedia/common/Time.hpp"
-#include "multimedia/recorder/FFmpegRecoder.hpp"
-#include "multimedia/recorder/Recorder.hpp"
 
 #define AV_SYNC_THRESHOLD_MIN           0.04
 #define AV_SYNC_THRESHOLD_MAX           0.1
@@ -29,7 +26,6 @@ FFmpegPlayer::FFmpegPlayer(AudioDevice audioDevice, VideoDevice videoDevice)
   , video_device_(videoDevice) {
   SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO);
   audio_buffer_.reset(new AudioBuffer(48000 * 4 * 1 * 3));
-  recorder_.reset(new FFmpegRecorder());
   openVideo();
 }
 FFmpegPlayer::~FFmpegPlayer() {
@@ -94,7 +90,7 @@ bool FFmpegPlayer::close() {
 
   if (isEnableAudio()) closeAudio();
 
-  is_aborted_ = true;
+  is_aborted_.set();
   if (isEnableAudio()) {
     audio_frame_queue_.close();
     audio_packet_queue_.close();
@@ -106,155 +102,15 @@ bool FFmpegPlayer::close() {
 
   if (!is_native_mode) play_thread_.stop();
   read_thread_.stop();
-  video_decode_thread_.stop();
-  audio_decode_thread_.stop();
-  if (recorder_->isRecording()) recorder_->close();
+  if (isEnableAudio()) audio_decode_thread_.stop();
+  if (isEnableVideo()) video_decode_thread_.stop();
 
   destroy();
 
   state_ = READY;
   return true;
 }
-bool FFmpegPlayer::open(const std::string &url) {
-  if (state_ != READY) {
-    if (state_ == NONE) return false;
-    close();
-  }
-  int r;
-
-  format_context_ = avformat_alloc_context();
-  if (!format_context_) {
-    FFMPEG_LOG_ERROR("Couldn't allocate format context");
-    this->destroy();
-    return false;
-  }
-
-  r = avformat_open_input(&format_context_, url.c_str(), nullptr, nullptr);
-  if (r < 0) {
-    FFMPEG_LOG_ERROR("Couldn't open file");
-    this->destroy();
-    return false;
-  }
-  r = avformat_find_stream_info(format_context_, nullptr);
-  if (r < 0) {
-    FFMPEG_LOG_ERROR("Couldn't find stream information");
-    this->destroy();
-    return false;
-  }
-
-  if (config_.debug_on) av_dump_format(format_context_, 0, url.c_str(), 0);
-
-  do {
-    if (isEnableAudio()) {
-      audio_stream_index_ = av_find_best_stream(
-        format_context_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-      if (audio_stream_index_ < 0) {
-        config_.common.enable_audio = false;
-        break;
-      }
-      audio_stream_ = format_context_->streams[audio_stream_index_];
-      audio_codec_context_ = avcodec_alloc_context3(nullptr);
-      if (!audio_codec_context_) {
-        FFMPEG_LOG_ERROR("Couldn't allocate audio codec context");
-        this->destroy();
-        return false;
-      }
-      r = avcodec_parameters_to_context(
-        audio_codec_context_, audio_stream_->codecpar);
-      if (r < 0) {
-        FFMPEG_LOG_ERROR("Couldn't copy audio codec context");
-        this->destroy();
-        return false;
-      }
-      audio_codec_ = avcodec_find_decoder(audio_codec_context_->codec_id);
-      if (!audio_codec_) {
-        FFMPEG_LOG_ERROR("Couldn't find audio decoder");
-        this->destroy();
-        return false;
-      }
-      r = avcodec_open2(audio_codec_context_, audio_codec_, nullptr);
-      if (r < 0) {
-        FFMPEG_LOG_ERROR("Couldn't open audio codec");
-        this->destroy();
-        return false;
-      }
-      audio_frame_queue_.clear();
-      audio_packet_queue_.clear();
-      audio_clock_.reset();
-
-      if (config_.audio.sample_rate <= 0)
-        config_.audio.sample_rate = audio_codec_context_->sample_rate;
-      size_t maxFrameNum = config_.common.seek_step * config_.audio.sample_rate
-                           * config_.audio.channels;
-      audio_packet_queue_.setMaxSize(maxFrameNum);
-      audio_frame_queue_.setMaxSize(maxFrameNum);
-    }
-  } while (0);
-
-  do {
-    if (isEnableVideo()) {
-      video_stream_index_ = av_find_best_stream(
-        format_context_, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-      if (video_stream_index_ < 0) {
-        config_.common.enable_video = false;
-        break;
-      }
-      video_stream_ = format_context_->streams[video_stream_index_];
-      video_codec_context_ = avcodec_alloc_context3(nullptr);
-      if (!video_codec_context_) {
-        FFMPEG_LOG_ERROR("Couldn't allocate video codec context");
-        this->destroy();
-        return false;
-      }
-      r = avcodec_parameters_to_context(
-        video_codec_context_, video_stream_->codecpar);
-      if (r < 0) {
-        FFMPEG_LOG_ERROR("Couldn't copy video codec context");
-        this->destroy();
-        return false;
-      }
-      video_codec_ = avcodec_find_decoder(video_codec_context_->codec_id);
-      if (!video_codec_) {
-        FFMPEG_LOG_ERROR("Couldn't find video decoder");
-        this->destroy();
-        return false;
-      }
-      r = avcodec_open2(video_codec_context_, video_codec_, nullptr);
-      if (r < 0) {
-        FFMPEG_LOG_ERROR("Couldn't open video codec");
-        this->destroy();
-        return false;
-      }
-      video_frame_queue_.clear();
-      video_packet_queue_.clear();
-      video_clock_.reset();
-
-      setWidthAndHeight();
-      video_codec_context_->framerate = config_.video.frame_rate =
-        video_stream_->avg_frame_rate;
-
-      size_t maxFrameNum = config_.common.seek_step
-                           * config_.video.frame_rate.num
-                           / config_.video.frame_rate.den;
-      video_packet_queue_.setMaxSize(maxFrameNum);
-      video_frame_queue_.setMaxSize(maxFrameNum);
-    }
-  } while (0);
-
-  if (!isEnableAudio() && !isEnableVideo()) {
-    ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "No Source to Play!!");
-    this->destroy();
-    return false;
-  }
-
-  is_streaming_ = isStreamUrl(url);
-  url_ = url;
-  if (!openAudio()) config_.common.enable_audio = false;
-  if (isEnableVideo()) setWindowSize(config_.video.width, config_.video.height);
-  state_ = READY2PLAY;
-  return true;
-}
-bool FFmpegPlayer::openDevice(
+bool FFmpegPlayer::open(
   const std::string &url, const std::string &shortName) {
   if (state_ != READY) {
     if (state_ == NONE) return false;
@@ -269,23 +125,26 @@ bool FFmpegPlayer::openDevice(
     return false;
   }
 
-  auto pInputFormat = av_find_input_format(shortName.c_str());
-  if (pInputFormat == nullptr) {
-    ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "Not found the target device");
-    this->destroy();
-    return false;
-  }
-
+  const AVInputFormat *pInputFormat = nullptr;
   AVDictionary *opt = nullptr;
-  if (device_config_.is_camera) {}
-  else {
-    auto &grabber = device_config_.grabber;
-    av_dict_set_int(&opt, "framerate",
-      std::lround(av_q2d(config_.video.frame_rate)), AV_DICT_MATCH_CASE);
-    av_dict_set_int(&opt, "draw_mouse", grabber.draw_mouse, AV_DICT_MATCH_CASE);
-    if (grabber.width > 0 && grabber.height > 0)
-      av_dict_set(
-        &opt, "video_size", grabber.video_size().c_str(), AV_DICT_MATCH_CASE);
+  if (!shortName.empty()) {
+    pInputFormat = av_find_input_format(shortName.c_str());
+    if (pInputFormat == nullptr) {
+      ILOG_ERROR_FMT(g_FFmpegPlayerLogger, "Not found the target device");
+      this->destroy();
+      return false;
+    }
+
+    if (device_config_.is_camera) {}
+    else {
+      auto &grabber = device_config_.grabber;
+      av_dict_set_int(&opt, "framerate",
+        std::lround(av_q2d(config_.video.frame_rate)), AV_DICT_MATCH_CASE);
+      av_dict_set_int(&opt, "draw_mouse", grabber.draw_mouse, AV_DICT_MATCH_CASE);
+      if (grabber.width > 0 && grabber.height > 0)
+        av_dict_set(
+          &opt, "video_size", grabber.video_size().c_str(), AV_DICT_MATCH_CASE);
+    }
   }
 
   r = avformat_open_input(&format_context_, url.c_str(), pInputFormat, &opt);
@@ -406,33 +265,15 @@ bool FFmpegPlayer::openDevice(
 
   url_ = url;
   short_name_ = shortName;
-  is_streaming_.set();
+  if (!shortName.empty()) is_streaming_.set();
   if (!openAudio()) config_.common.enable_audio = false;
-  if (isEnableVideo()) setWindowSize(config_.video.width, config_.video.height);
+  if (isEnableVideo() && is_native_mode) setWindowSize(config_.video.width, config_.video.height);
   state_ = READY2PLAY;
   return true;
 }
 
 bool FFmpegPlayer::play() {
   if (state_ != READY2PLAY) return false;
-
-  if (config_.common.save_while_playing) {
-    if (isNetworkStream()) {
-      RecorderConfig recorder_config;
-      recorder_config.video.width = config_.video.width;
-      recorder_config.video.height = config_.video.height;
-      recorder_config.video.max_width = config_.video.max_width;
-      recorder_config.video.max_height = config_.video.max_height;
-      recorder_config.video.sample_aspect_ratio = config_.video.sample_aspect_ratio;
-      recorder_config.device = device_config_;
-      recorder_config.common.enable_video = config_.common.enable_video;
-      recorder_config.common.enable_audio = config_.common.enable_audio;
-
-      recorder_->init(recorder_config);
-      recorder_->open(list_.get(list_.current()));
-      recorder_->record();
-    }
-  }
 
   if (isEnableAudio()) {
     audio_frame_queue_.open();
@@ -477,76 +318,97 @@ bool FFmpegPlayer::play() {
 }
 
 bool FFmpegPlayer::replay() {
-  need2pause_.unset();
-  return true;
+  if (isPaused()) {
+    if (isEnableAudio()) {
+      SDL_LockAudioDevice(device_id_);
+      SDL_PauseAudioDevice(device_id_, 0);
+      SDL_UnlockAudioDevice(device_id_);
+    }
+    if (isNetworkStream()) av_read_play(format_context_);
+    state_ = PLAYING;
+    return true;
+  }
+  return false;
 }
 
 bool FFmpegPlayer::pause() {
   // PLAYING, READY2PLAY
-  need2pause_.set();
-  return true;
+  if (isPlaying() || state_ == READY2PLAY) {
+    last_paused_time_ = getCurrentTime();
+    if (isEnableAudio()) {
+      SDL_LockAudioDevice(device_id_);
+      SDL_PauseAudioDevice(device_id_, 1);
+      SDL_UnlockAudioDevice(device_id_);
+    }
+    if (isNetworkStream()) av_read_pause(format_context_);
+    state_ = PAUSED;
+    return true;
+  }
+  return false;
 }
 
 void FFmpegPlayer::play(const MediaList &list) {
   if (list.isEmpty()) return;
 
   list_ = list;
+  bool success;
   do {
-    size_t idx = list_.current();
-    if (idx >= list_.size()) {
-      if (!config_.isListLoop()) {
-        break;
+    auto media = list_.current();
+    device_config_ = media.config();
+    success = open(media.getUrl(), media.getDeviceName());
+    if (success) {
+      play();
+      if (need_move_to_prev_) {
+        list_.prev();
+        close();
+        need_move_to_prev_.unset();
       }
-      list_.rewind();
-      idx = 0;
+      else if (need_move_to_next_) {
+        list_.next();
+        close();
+        need_move_to_next_.unset();
+      }
+      else {
+        list_.next();
+      }
     }
-    auto media = list_.get(idx);
-    if (media.getDeviceName().empty()) {
-      open(media.getUrl());
-    }
-    else {
-      device_config_ = media.config();
-      openDevice(media.getUrl(), media.getDeviceName());
-    }
-    play();
-    if (!config_.isSignalLoop()) list_.next();
   } while (config_.common.auto_read_next_media);
 }
-void FFmpegPlayer::play(const MediaSource &media) {
-  list_.clear();
-  list_.add(media);
+void FFmpegPlayer::play(const MediaSource &media, bool isUseLocal) {
+  if (isUseLocal) {
+    list_.skipTo(media);
+  } else {
+    list_.clear();
+    list_.add(media);
+  }
 
+  bool success;
   do {
-    size_t idx = list_.current();
-    if (idx >= list_.size()) {
-      if (!config_.isListLoop()) {
-        break;
-      }
-      list_.rewind();
-      idx = 0;
-    }
-    auto media = list_.get(idx);
-    if (media.getDeviceName().empty()) {
-      open(media.getUrl());
-    }
-    else {
-      device_config_ = media.config();
-      openDevice(media.getUrl(), media.getDeviceName());
-    }
-    play();
-    if (!config_.isSignalLoop()) list_.next();
+    auto media = list_.current();
+    device_config_ = media.config();
+    success = open(media.getUrl(), media.getDeviceName());
+    if (success) play();
+    list_.next();
   } while (config_.common.auto_read_next_media);
 }
 
 void FFmpegPlayer::playPrev() {
   list_.prev();
-  play(list_.get(list_.current()).getUrl());
+  play(list_.current(), true);
 }
 void FFmpegPlayer::playNext() {
   list_.next();
-  play(list_.get(list_.current()).getUrl());
+  play(list_.current(), true);
 }
 
+void FFmpegPlayer::onPlayPrev() {
+  is_aborted_ = true;
+  need_move_to_prev_.set();
+}
+void FFmpegPlayer::onPlayNext() {
+  is_aborted_ = true;
+  need_move_to_next_.set();
+}
 
 void FFmpegPlayer::seek(double pos) {
   if (pos < 0.0f)
@@ -575,33 +437,15 @@ bool FFmpegPlayer::check(PlayerConfig &config) const {
 void FFmpegPlayer::onReadFrame() {
   int r;
   while (!is_aborted_) {
-    if (need2pause_) {
+    if (need2seek_) {
       if (isPlaying()) {
-        last_paused_time_ = getCurrentTime();
         if (isEnableAudio()) {
           SDL_LockAudioDevice(device_id_);
           SDL_PauseAudioDevice(device_id_, 1);
           SDL_UnlockAudioDevice(device_id_);
         }
-        if (isNetworkStream()) av_read_pause(format_context_);
-        recorder_->pause();
-        state_ = PAUSED;
       }
-      else if (isPaused()) {
-        if (isEnableAudio()) {
-          SDL_LockAudioDevice(device_id_);
-          SDL_PauseAudioDevice(device_id_, 0);
-          SDL_UnlockAudioDevice(device_id_);
-        }
-        if (isNetworkStream()) av_read_play(format_context_);
-        recorder_->resume();
-        state_ = PLAYING;
-      }
-      need2pause_.unset();
-    }
 
-    if (need2seek_) {
-      pause();
       int64_t seekTarget = seek_pos_;
       r = av_seek_frame(format_context_, -1, seekTarget,
         AVSEEK_FLAG_FRAME | AVSEEK_FLAG_BACKWARD);
@@ -620,7 +464,14 @@ void FFmpegPlayer::onReadFrame() {
       }
       need2seek_.unset();
       is_eof_.unset();
-      replay();
+
+      if (isPlaying()) {
+        if (isEnableAudio()) {
+          SDL_LockAudioDevice(device_id_);
+          SDL_PauseAudioDevice(device_id_, 0);
+          SDL_UnlockAudioDevice(device_id_);
+        }
+      }
     }
 
     continue_read_cond_.waitFor(std::chrono::microseconds(10), [&]() {
@@ -852,6 +703,7 @@ bool FFmpegPlayer::openSDL(bool isAudio) {
       ILOG_ERROR_FMT(
         g_FFmpegPlayerLogger, "av_samples_get_buffer_size failed!");
       SDL_CloseAudioDevice(device_id_);
+      device_id_ = 0;
       return false;
     }
     ILOG_INFO_FMT(g_FFmpegPlayerLogger, "Setup SDL Audio");
@@ -882,10 +734,17 @@ bool FFmpegPlayer::closeSDL(bool isAudio) {
     SDL_PauseAudioDevice(device_id_, 1);
     SDL_UnlockAudioDevice(device_id_);
     SDL_CloseAudioDevice(device_id_);
+    device_id_ = 0;
   }
   else {
-    if (renderer_) SDL_DestroyRenderer(renderer_);
-    if (window_) SDL_DestroyWindow(window_);
+    if (renderer_) {
+      SDL_DestroyRenderer(renderer_);
+      renderer_ = nullptr;
+    }
+    if (window_) {
+      SDL_DestroyWindow(window_);
+      window_ = nullptr;
+    }
   }
   return true;
 }
@@ -1006,8 +865,6 @@ void FFmpegPlayer::doEventLoop() {
         exit(0);
       case SDL_KEYDOWN:
         switch (event.key.keysym.sym) {
-        case SDLK_q: playPrev(); break;
-        case SDLK_e: playNext(); break;
         case SDLK_SPACE:
         {
           if (isPaused())
@@ -1023,6 +880,8 @@ void FFmpegPlayer::doEventLoop() {
           exit(0);
         case SDLK_LEFT: seekPrev(); break;
         case SDLK_RIGHT: seekNext(); break;
+        case SDLK_4: onPlayPrev(); return;
+        case SDLK_6: onPlayNext(); return;
         case SDLK_PLUS:
         case SDLK_UP: volumeUp(); break;
         case SDLK_MINUS:
@@ -1052,8 +911,7 @@ void FFmpegPlayer::doVideoDelay() {
       audio_clock_.get(), video_clock_.get());
 
     double sync_threshold =
-      FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(delay, AV_SYNC_THRESHOLD_MAX))
-      * AV_TIME_BASE;
+      FFMAX(AV_SYNC_THRESHOLD_MIN, FFMIN(delay, AV_SYNC_THRESHOLD_MAX));
     diff = video_clock_.get() - audio_clock_.get();
     if (fabs(diff) < AV_NOSYNC_THRESHOLD) {  // 10 secs
       if (diff <= -sync_threshold)
@@ -1062,14 +920,6 @@ void FFmpegPlayer::doVideoDelay() {
         delay = delay + diff;
       else if (diff >= sync_threshold)
         delay = 2 * delay;
-    }
-
-    // diff = V - A
-    if (diff < -0.3f) {
-      delay /= 2;
-    }
-    else if (diff > 0.3f) {
-      delay *= 2;
     }
   }
   else {
@@ -1089,13 +939,15 @@ void FFmpegPlayer::doVideoDelay() {
 
 void FFmpegPlayer::doVideoDisplay() {
   int r;
-  while (!isAborted()) {
+  while (true) {
     if (is_native_mode) doEventLoop();
     if (!is_streaming_) {
       if (getTotalTime() - getCurrentTime() < 0.3f) {
         is_aborted_ = true;
       }
     }
+    if (is_aborted_) break;
+
     if (isPaused()) {
       continue;
     }

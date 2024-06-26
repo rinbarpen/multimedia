@@ -1,6 +1,7 @@
-#pragma once
+﻿#pragma once
 
 #include <list>
+#include <deque>
 
 #include "multimedia/FFmpegUtil.hpp"
 
@@ -13,9 +14,11 @@ public:
 
   void open() {
     running_ = true;
+    cond_.notify_all();
   }
   void close() {
     running_ = false;
+    cond_.notify_all();
   }
 
   bool push(const T& x) {
@@ -26,6 +29,7 @@ public:
       });
       if (!running_) return false;
     }
+    
     Mutex::lock locker1(mutex_);
     data_.push_back(x);
     return true;
@@ -38,6 +42,7 @@ public:
       });
       if (!running_) return false;
     }
+
     Mutex::lock locker1(mutex_);
     data_.push_back(x);
     return true;
@@ -89,7 +94,8 @@ private:
   }
 private:
   std::atomic<size_t> max_size_ = INT64_MAX;
-  std::list<T> data_;
+  //std::list<T> data_;
+  std::deque<T> data_;
   std::condition_variable cond_;
   mutable Mutex::type cond_mutex_;
   mutable Mutex::type mutex_;
