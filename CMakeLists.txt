@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-project("multimedia" VERSION 0.8 LANGUAGES C CXX)
+project("RbpMultimedia" VERSION 1.0 LANGUAGES C CXX)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Debug")
@@ -15,6 +15,12 @@ message("Build ${PROJECT_NAME} with ${CMAKE_BUILD_TYPE}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
+
+if (MSVC)
+  add_compile_options()
+elseif(NOT ENABLE_STATIC)
+  add_compile_options(-fpic)
+endif(MSVC)
 
 # ######################################## Requirments Begin ########################################
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/yaml-cpp")
@@ -33,8 +39,8 @@ if(NOT OPENSSL_FOUND)
 endif()
 
 if(WIN32)
-  set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/win32/6.1n")
-  set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib")
+  set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/win")
+  set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib/x64")
 else()
   set(FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ffmpeg/linux")
   set(FFMPEG_LIBRARIES_DIR "${FFMPEG_DIR}/lib")
@@ -55,7 +61,7 @@ message(STATUS "Load FFmpeg")
 
 set(SDL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SDL2")
 if(WIN32)
-  set(SDL_LIBRARIES_DIR "${SDL_DIR}/lib/win/x86")
+  set(SDL_LIBRARIES_DIR "${SDL_DIR}/lib/win/x64")
 else()
   set(SDL_LIBRARIES_DIR "${SDL_DIR}/lib/linux")
   find_package(SDL2 COMPONENTS SDL2 REQUIRED)
@@ -66,29 +72,21 @@ set(SDL_LIBRARIES
 set(SDL_INCLUDE "${SDL_DIR}/include")
 message(STATUS "Load SDL")
 
-
 # ######################################## Library End   ############################################
 
 # find_package(Qt5 REQUIRED COMPONENTS Widgets Gui Core Sql REQUIRED)
 file(GLOB
   SRC_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/player/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/recorder/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/device/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/filter/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/io/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/common/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/*.hpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/filter/*.hpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/recorder/*.hpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/device/*.hpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/common/*.hpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/io/*.hpp"
 )
 
-if(ENABLE_TEST)
-  add_subdirectory(tests)
-endif()
+add_subdirectory(tests)
 
 set(PROJECT_LIBS
   fmt::fmt
@@ -112,22 +110,33 @@ set(PROJECT_INCLUDES
   "${FFMPEG_INCLUDE}"
 )
 
-add_executable(${PROJECT_NAME} ${SRC_FILES} "src/main.cpp")
-target_include_directories(${PROJECT_NAME}
+
+if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+  set(RBPLIB_NAME ${PROJECT_NAME}d)
+else() 
+  set(RBPLIB_NAME ${PROJECT_NAME})
+endif()
+
+if (ENABLE_STATIC)
+  add_library(${RBPLIB_NAME} STATIC ${SRC_FILES})
+else()
+  add_library(${RBPLIB_NAME} SHARED ${SRC_FILES})
+endif()
+target_include_directories(${RBPLIB_NAME}
 PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include"
   ${PROJECT_INCLUDES}
 )
-target_link_directories(${PROJECT_NAME}
+target_link_directories(${RBPLIB_NAME}
 PRIVATE
   ${FFMPEG_LIBRARIES_DIR}
   ${SDL_LIBRARIES_DIR}
 )
-target_link_libraries(${PROJECT_NAME}
+target_link_libraries(${RBPLIB_NAME}
 PRIVATE
   ${PROJECT_LIBS}
 )
-target_compile_features(${PROJECT_NAME}
+target_compile_features(${RBPLIB_NAME}
 PRIVATE
   cxx_std_17
 )

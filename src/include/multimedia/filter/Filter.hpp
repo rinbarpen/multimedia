@@ -1,7 +1,7 @@
 #pragma once
 
 #include <memory>
-#include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/common/FFmpegUtil.hpp"
 class Filter
 {
 public:

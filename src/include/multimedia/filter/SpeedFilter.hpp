@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Filter.hpp"
-#include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/filter/Filter.hpp"
 
 class SpeedFilter : public Filter
 {

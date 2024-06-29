@@ -3,7 +3,7 @@
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/OSUtil.hpp"
 #include "multimedia/common/Math.hpp"
-#include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/common/FFmpegUtil.hpp"
 #include "multimedia/common/StringUtil.hpp"
 #include "multimedia/recorder/FFmpegRecoder.hpp"
 #include "multimedia/recorder/Recorder.hpp"

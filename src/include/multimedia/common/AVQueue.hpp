@@ -3,7 +3,7 @@
 #include <list>
 #include <deque>
 
-#include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/common/FFmpegUtil.hpp"
 
 template <typename T>
 class AVQueue

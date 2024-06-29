@@ -1,8 +1,8 @@
-﻿#include "multimedia/FFmpegPlayer.hpp"
-#include "multimedia/AudioBuffer.hpp"
+﻿#include "multimedia/common/AudioBuffer.hpp"
 #include "multimedia/common/Logger.hpp"
 #include "multimedia/common/Math.hpp"
 #include "multimedia/common/Time.hpp"
+#include "multimedia/player/FFmpegPlayer.hpp"
 
 #define AV_SYNC_THRESHOLD_MIN           0.04
 #define AV_SYNC_THRESHOLD_MAX           0.1

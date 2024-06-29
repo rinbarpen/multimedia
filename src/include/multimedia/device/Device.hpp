@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/common/FFmpegUtil.hpp"
 
 struct DeviceConfig
 {

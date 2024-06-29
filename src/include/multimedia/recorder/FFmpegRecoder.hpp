@@ -1,10 +1,10 @@
 #pragma once
 
-#include "multimedia/MediaSource.hpp"
 #include "multimedia/common/Bit.hpp"
 #include "multimedia/common/ConditionVariable.hpp"
-#include "multimedia/AVQueue.hpp"
-#include "multimedia/AVThread.hpp"
+#include "multimedia/common/AVQueue.hpp"
+#include "multimedia/common/AVThread.hpp"
+#include "multimedia/MediaSource.hpp"
 #include "multimedia/recorder/Recorder.hpp"
 
 class FFmpegRecorder : public Recorder

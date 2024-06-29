@@ -5,11 +5,11 @@
 #include <string>
 
 #include "multimedia/common/ConditionVariable.hpp"
-#include "multimedia/AVClock.hpp"
-#include "multimedia/AVQueue.hpp"
-#include "multimedia/AVThread.hpp"
-#include "multimedia/AudioBuffer.hpp"
-#include "multimedia/Player.hpp"
+#include "multimedia/common/AVClock.hpp"
+#include "multimedia/common/AVQueue.hpp"
+#include "multimedia/common/AVThread.hpp"
+#include "multimedia/common/AudioBuffer.hpp"
+#include "multimedia/player/Player.hpp"
 #include "multimedia/MediaList.hpp"
 #include "multimedia/filter/Resampler.hpp"
 #include "multimedia/filter/Converter.hpp"

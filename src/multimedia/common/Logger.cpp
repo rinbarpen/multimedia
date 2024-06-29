@@ -85,7 +85,16 @@ public:
   FilenameFormatterItem(const std::string &str = "") {}
   void format(std::ostream &os, LogEvent::ptr pLogEvent,
     std::shared_ptr<Logger> pLogger) override {
-    os << pLogEvent->getFilename();
+    auto name = pLogEvent->getFilename();
+    std::string basename;
+    auto p = name.rfind('/');
+    if (p != std::string::npos) {
+      basename = name.substr(p + 1);
+    }
+    else {
+      basename = name;
+    }
+    os << basename;
   }
 };
 class LineFormatterItem final : public LogFormatterItem

@@ -8,7 +8,7 @@
 #include "multimedia/MediaSource.hpp"
 #include "multimedia/common/StringUtil.hpp"
 #include "multimedia/common/Bit.hpp"
-#include "multimedia/FFmpegUtil.hpp"
+#include "multimedia/common/FFmpegUtil.hpp"
 
 #include <yaml-cpp/yaml.h>
 #if defined(_WIN32)

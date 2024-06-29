@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include <utility>
+
 class Bit 
 {
 public:

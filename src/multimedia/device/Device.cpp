@@ -1,4 +1,3 @@
-#include "multimedia/FFmpegUtil.hpp"
 #include "multimedia/device/Device.hpp"
 
 Device::Device(const std::string &name)

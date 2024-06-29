@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include "multimedia/FFmpegUtil.hpp"
 #include "multimedia/filter/Filter.hpp"
 
 class Resampler : public Filter {

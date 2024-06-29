@@ -1,12 +1,12 @@
 ﻿#pragma once
 
-#include "multimedia/AVThread.hpp"
-#include "multimedia/common/Generator.hpp"
 #include <cstdint>
-#include <multimedia/FFmpegUtil.hpp>
-#include <multimedia/common/ConditionVariable.hpp>
 #include <queue>
 #include <string>
+#include "multimedia/common/AVThread.hpp"
+#include "multimedia/common/Generator.hpp"
+#include "multimedia/common/FFmpegUtil.hpp"
+#include "multimedia/common/ConditionVariable.hpp"
 
 struct WriteConfig
 {
