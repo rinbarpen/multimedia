@@ -1,4 +1,4 @@
-ffmpeg=6.0.1n
+ffmpeg=6.1n
 fmt=10.1.0
 glfw=3.3.9
 googletest=v1.12.0

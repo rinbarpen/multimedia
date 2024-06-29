@@ -16,7 +16,7 @@
 #elif defined(__linux__)
 # include <X11/Xlib.h>
 #endif
-enum class LoopType { NO_LOOP, LOOP_LIST, LOOP_SIGNAL, LOOP_LIST_AND_SIGNAL};
+
 struct PlayerConfig
 {
   PlayerConfig() {
@@ -95,9 +95,9 @@ struct PlayerConfig
     bool force_idr{false};
 
     float speed{1.0f};
-    LoopType loop{LoopType::NO_LOOP};
-    Bit auto_read_next_media{false};
+    Bit auto_read_next_media{true};
     Bit save_while_playing{false};  // 播放设备流网络流时有效
+    Bit track_mode{false};  // 播放设备流网络流时有效
     std::string save_file;
     
     YAML::Node dump2Yaml() const {
@@ -108,7 +108,6 @@ struct PlayerConfig
       common["seek_step"] = seek_step;
       common["force_idr"] = force_idr;
       common["speed"] = speed;
-      common["loop"] = (int)loop;
       common["auto_read_next_media"] = auto_read_next_media.get();
       common["save_while_playing"] = save_while_playing.get();
       return common;
@@ -162,12 +161,9 @@ struct PlayerConfig
     common.enable_video = enable;
   }
 
-  bool isSignalLoop() const { return common.loop == LoopType::LOOP_SIGNAL || common.loop == LoopType::LOOP_LIST_AND_SIGNAL; }
-  bool isListLoop() const { return common.loop == LoopType::LOOP_LIST || common.loop == LoopType::LOOP_LIST_AND_SIGNAL; }
-  bool isEnableAStream() const { return common.enable_audio; }
-  bool isEnableVStream() const { return common.enable_video; }
-  bool isEnableAVStream() const { return common.enable_video && common.enable_audio; }
-
+  bool isEnableAudio() const { return common.enable_audio; }
+  bool isEnableVideo() const { return common.enable_video; }
+  bool isEnableAudioAndVideo() const { return common.enable_video && common.enable_audio; }
 };
 
 class Player
@@ -189,6 +185,10 @@ public:
   virtual ~Player() = default;
 
   virtual bool init(PlayerConfig config) = 0;
+  virtual bool open(const std::string& url, const std::string &shortName) = 0;
+  virtual bool play() = 0;
+  virtual bool close() = 0;
+  virtual void destroy() = 0;
   virtual bool pause() = 0;
   virtual bool replay() = 0;
   virtual void seek(double pos) = 0;
@@ -211,9 +211,6 @@ public:
   }
   void setMute(bool muted) {
     config_.audio.is_muted = muted;
-  }
-  void setLoop(LoopType loop) {
-    config_.common.loop = loop;
   }
   void setSpeed(float speed) {
     config_.common.speed = speed;
@@ -239,12 +236,6 @@ public:
   void shuttle() { list_.shuttle(); }
 
 protected:
-  virtual bool open(const std::string& url) = 0;
-  virtual bool openDevice(const std::string& url, const std::string &shortName) = 0;
-  virtual bool play() = 0;
-  virtual bool close() = 0;
-  virtual void destroy() = 0;
-
   static bool isStreamUrl(const std::string& url) {
     if (string_util::start_with(url, "rtsp") || string_util::start_with(url, "rtsps")
     || string_util::start_with(url, "rtmp") || string_util::start_with(url, "rtmps")

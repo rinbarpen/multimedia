@@ -1,5 +1,5 @@
-#include "multimedia/filter/Converter.hpp"
 #include <memory>
+#include "multimedia/filter/Converter.hpp"
 
 Converter::Converter() : Filter() {}
 Converter::~Converter() {
@@ -8,7 +8,7 @@ Converter::~Converter() {
   }
 }
 
-Converter::ptr create() {
+Converter::ptr Converter::create() {
   return std::make_shared<Converter>();
 }
 
@@ -33,7 +33,7 @@ bool Converter::isDirty(Converter::Info &out) const {
 }
 int Converter::run(AVFramePtr pInFrame, AVFramePtr pOutFrame) {
   int r = av_image_alloc(pOutFrame->data, pOutFrame->linesize, pOutFrame->width,
-    pOutFrame->height, (AVPixelFormat)pOutFrame->format, 1);
+    pOutFrame->height, (AVPixelFormat)pOutFrame->format, 32);
   if (r < 0) return r;
 
   return sws_scale(sws_context_, pInFrame->data, pInFrame->linesize, 0,

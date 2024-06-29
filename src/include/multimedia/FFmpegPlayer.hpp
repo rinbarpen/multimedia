@@ -1,7 +1,6 @@
 ﻿#pragma once
 
 #include <cstdint>
-#include <fstream>
 #include <memory>
 #include <string>
 
@@ -11,9 +10,10 @@
 #include "multimedia/AVThread.hpp"
 #include "multimedia/AudioBuffer.hpp"
 #include "multimedia/Player.hpp"
+#include "multimedia/MediaList.hpp"
 #include "multimedia/filter/Resampler.hpp"
 #include "multimedia/filter/Converter.hpp"
-#include "multimedia/recorder/FFmpegRecoder.hpp"
+#include "multimedia/io/AVWriter.hpp"
 
 #include <SDL2/SDL.h>
 
@@ -44,17 +44,20 @@ public:
   bool isAborted() const { return is_aborted_; }
 
   void play(const MediaList &list); 
-  void play(const MediaSource &media);
+  void play(const MediaSource &media, bool isUseLocal = false);
 
   void playPrev();
   void playNext();
 
+  size_t getCurrentIndex() const { return list_.currentIndex(); }
+  MediaSource getCurrentMediaSource() const {return list_.current(); }
+  MediaList getMediaList() const { return list_; }
+
 protected:
-  bool open(const std::string &url) override;
+  bool open(
+    const std::string &url, const std::string &shortName = "") override;
   bool play() override;
   bool close() override;
-  bool openDevice(
-    const std::string &url, const std::string &shortName = "") override;
   virtual void doEventLoop();
   virtual void doVideoDisplay();
   virtual void doVideoDelay();
@@ -63,12 +66,13 @@ private:
   void destroy() override;
   bool check(PlayerConfig &config) const;
 
+  void onSetupRecord();
+  void onSetdownRecord();
+  void onPlayPrev();
+  void onPlayNext();
   void onReadFrame();
   void onAudioDecode();
   void onVideoDecode();
-
-  void setUpWriteThread();
-  void onWriteFile();
 
   int decodeAudioFrame(AVFramePtr &pOutFrame);
   bool decodeVideoFrame(AVFramePtr &pOutFrame);
@@ -117,6 +121,8 @@ private:
   AVClock video_clock_;
   AVClock audio_clock_;
 
+  Bit need_move_to_prev_;
+  Bit need_move_to_next_;
   Bit need2pause_{false};
   Bit need2seek_{false};
   Bit is_aborted_{false};
@@ -127,7 +133,7 @@ private:
   AVThread video_decode_thread_{"VideoDecodeThread"};
   AVThread play_thread_{"PlayThread"};  
 
-  std::ofstream writer_;
+  std::unique_ptr <AVWriter> writer_;
 
   std::unique_ptr<Resampler> resampler_;
   std::unique_ptr<Converter> converter_;
@@ -152,6 +158,5 @@ private:
   } audio_hw_params;
 
   std::unique_ptr<AudioBuffer> audio_buffer_;
-
-  std::unique_ptr<FFmpegRecorder> recorder_;
 };
+

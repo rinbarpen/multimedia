@@ -76,12 +76,14 @@ file(GLOB
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/recorder/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/device/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/filter/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/io/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/common/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/filter/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/recorder/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/device/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/common/*.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/io/*.hpp"
 )
 
 if(ENABLE_TEST)

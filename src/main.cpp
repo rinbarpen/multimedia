@@ -23,11 +23,14 @@ int main(int argc, char *argv[]) {
 
   ffinit();
 
+  av_log_set_level(AV_LOG_QUIET);
+
   DeviceConfig dconfig;
-  dconfig.grabber.draw_mouse = 1;
+  dconfig.grabber.draw_mouse = 0;
   dconfig.is_camera = true;
   MediaSource cameraGarb = {"video=USB2.0 HD UVC WebCam", "dshow", dconfig};
   MediaSource desktopGarb = {"desktop", "gdigrab", dconfig};
+  MediaSource chromeGarb = {"video=chrome.exe", "gdigrab", dconfig};
 
   MediaList list;
 //  list.add(MediaSource{"/home/youmu/Desktop/227.mp4"});
@@ -36,13 +39,35 @@ int main(int argc, char *argv[]) {
   list.add(MediaSource{"E:/Data/video/1080p U149.mp4"});
 
   PlayerConfig config;
+  //FFmpegRecorder recorder;
+  //RecorderConfig recorder_config;
+  //recorder_config.video.width = config.video.width;
+  //recorder_config.video.height = config.video.height;
+  //recorder_config.video.max_width = config.video.max_width;
+  //recorder_config.video.max_height = config.video.max_height;
+  //recorder_config.video.sample_aspect_ratio = config.video.sample_aspect_ratio;
+  //recorder_config.device = dconfig;
+  //recorder_config.common.enable_video = config.common.enable_video;
+  //recorder_config.common.enable_audio = config.common.enable_audio;
+
+  //recorder.init(recorder_config);
+  //recorder.open(cameraGarb);
+  //recorder.record();
+
+  //{
+  //  std::this_thread::sleep_for(std::chrono::seconds(5));
+  //}
+
   FFmpegPlayer::is_native_mode = true;
   FFmpegPlayer player(AudioDevice::SDL, VideoDevice::SDL);
-  config.common.loop = LoopType::LOOP_LIST;
-  config.common.auto_read_next_media = true;
-  config.common.save_while_playing = true;
+  list.setListLoop(true);
+  //config.common.save_while_playing = true;
+  config.common.track_mode = true;
+  config.common.save_file = "screen-capture.mp4";
   player.init(config);
   //player.play(list);
-  player.play(cameraGarb);
+  
+  player.play(desktopGarb);
+  //player.play(cameraGarb);
   return 0;
 }

@@ -10,8 +10,8 @@
 class FFmpegRecorder : public Recorder
 {
 public:
-  FFmpegRecorder() = default;
-  ~FFmpegRecorder() = default;
+  FFmpegRecorder();
+  ~FFmpegRecorder();
 
   bool init(RecorderConfig config) override;
   bool open(const MediaSource &source) override;
@@ -23,9 +23,11 @@ public:
 private:
   void onRead();
   void onWrite();
-
+  void onAudioFrameDecode();
+  void onVideoFrameDecode();
+  
   bool openInputStream(const std::string &url, const std::string&shortName);
-  bool openOutputStream(const std::string &filename);
+  bool openOutputStream(const std::string &url);
 
 private:
   struct AVGroup {
@@ -58,13 +60,16 @@ private:
   AVGroup in_, out_;
   AVThread read_thread_{"ReadThread"};
   AVThread video_write_thread_{"VideoWriteThread"};
-  AVThread audio_write_thread_{"AudioWriteThread"};
+  //AVThread audio_write_thread_{"AudioWriteThread"};
   AVThread write_thread_{"WriteThread"};
+  AVThread audio_decode_thread_{"AudioDecodeThread"};
+  AVThread video_decode_thread_{"VideoDecodeThread"};
+
   ConditionVariable cond_read_;
   ConditionVariable cond_write_;
   AVPacketQueue in_packets_;
+  AVFrameQueue in_frames_;
   Bit need2pause_;
-  bool is_eof_{false};
   bool is_aborted_{false};
   bool need_write_tail_{false};
 };
