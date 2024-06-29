@@ -97,6 +97,7 @@ struct PlayerConfig
     float speed{1.0f};
     Bit auto_read_next_media{true};
     Bit save_while_playing{false};  // 播放设备流网络流时有效
+    Bit track_mode{false};  // 播放设备流网络流时有效
     std::string save_file;
     
     YAML::Node dump2Yaml() const {

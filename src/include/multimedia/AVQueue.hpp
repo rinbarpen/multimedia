@@ -67,6 +67,13 @@ public:
     }
     return data_.front();
   }
+  T peekLatest() const {
+    Mutex::lock locker(mutex_);
+    if (isEmptyInternal()) {
+      return {};
+    }
+    return data_.back();
+  }
 
   void clear() {
     Mutex::lock locker(mutex_);

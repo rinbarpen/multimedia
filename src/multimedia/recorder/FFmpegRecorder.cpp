@@ -366,9 +366,6 @@ bool FFmpegRecorder::openInputStream(
 bool FFmpegRecorder::openOutputStream(const std::string &url) {
   int r;
 
-  if (!os_api::exist_dir(config_.common.output_dir)) {
-    os_api::mkdir(config_.common.output_dir);
-  }
   auto outputRealFilePath = config_.common.output_dir + "/" + output_filename_;
   if (!os_api::exist_file(outputRealFilePath)) {
     os_api::touch(outputRealFilePath);

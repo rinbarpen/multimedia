@@ -66,6 +66,8 @@ private:
   void destroy() override;
   bool check(PlayerConfig &config) const;
 
+  void onSetupRecord();
+  void onSetdownRecord();
   void onPlayPrev();
   void onPlayNext();
   void onReadFrame();
@@ -157,3 +159,4 @@ private:
 
   std::unique_ptr<AudioBuffer> audio_buffer_;
 };
+

@@ -11,7 +11,7 @@
 #define SDL_AUDIO_MIN_BUFFER_SIZE       512
 #define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
 
-static auto g_FFmpegPlayerLogger = GET_LOGGER3("FFmpegPlayer");
+static auto g_FFmpegPlayerLogger = GET_LOGGER3("multimedia.FFmpegPlayer");
 
 #define FFMPEG_LOG_ERROR(fmt, ...)                              \
   do {                                                          \
@@ -104,6 +104,9 @@ bool FFmpegPlayer::close() {
   read_thread_.stop();
   if (isEnableAudio()) audio_decode_thread_.stop();
   if (isEnableVideo()) video_decode_thread_.stop();
+
+  if (writer_)
+    writer_.release();
 
   destroy();
 
@@ -434,6 +437,15 @@ bool FFmpegPlayer::check(PlayerConfig &config) const {
   return true;
 }
 
+void FFmpegPlayer::onSetupRecord() {
+  config_.common.save_while_playing = true;
+}
+
+void FFmpegPlayer::onSetdownRecord() {
+  config_.common.save_while_playing = false;
+  writer_->close();
+}
+
 void FFmpegPlayer::onReadFrame() {
   int r;
   while (!is_aborted_) {
@@ -601,6 +613,21 @@ bool FFmpegPlayer::decodeVideoFrame(AVFramePtr &pOutFrame) {
   AVFramePtr pFrame;
   if (!video_frame_queue_.pop(pFrame)) {
     return false;
+  }
+
+  if (is_streaming_ && config_.common.track_mode) {
+    int drop = 0;
+    AVFramePtr pLastestFrame;
+    while (video_frame_queue_.pop(pLastestFrame)) {
+      auto tb =av_q2d(video_codec_context_->time_base);
+      auto diff = (pLastestFrame->pts - pFrame->pts) * tb;
+      if (diff < 3.0f) {
+        break;
+      }
+      drop++;
+    }
+    if (pLastestFrame) pFrame = pLastestFrame;
+    if (drop > 0) ILOG_WARN_FMT(g_FFmpegPlayerLogger, "Drop {} frames", drop);
   }
 
   last_video_duration_pts_ = pFrame->pts - last_vframe_pts_;
@@ -882,6 +909,9 @@ void FFmpegPlayer::doEventLoop() {
         case SDLK_RIGHT: seekNext(); break;
         case SDLK_4: onPlayPrev(); return;
         case SDLK_6: onPlayNext(); return;
+        // FIXME: Have memory leak when setting up record
+        //case SDLK_7: onSetupRecord(); break;
+        //case SDLK_8: onSetdownRecord(); break;
         case SDLK_PLUS:
         case SDLK_UP: volumeUp(); break;
         case SDLK_MINUS:
@@ -928,13 +958,15 @@ void FFmpegPlayer::doVideoDelay() {
     delay = FFMAX(0, delay - elapse);
   }
 
-  auto curr = getCurrentTime();
-  int minutes = (int) curr / 60;
-  double seconds = curr - minutes * 60;
-  ILOG_DEBUG_FMT(g_FFmpegPlayerLogger,
-    "{}m:{:.3f}s | Delay: {:.3f}s | A-V: {:.3f}s", minutes, seconds, delay,
-    -diff);
-  Clock::sleep(delay * AV_TIME_BASE);
+  if (!(is_streaming_ && config_.common.track_mode)) {
+    auto curr = getCurrentTime();
+    int minutes = (int) curr / 60;
+    double seconds = curr - minutes * 60;
+    ILOG_DEBUG_FMT(g_FFmpegPlayerLogger,
+      "{}m:{:.3f}s | Delay: {:.3f}s | A-V: {:.3f}s", minutes, seconds, delay,
+      -diff);
+    Clock::sleep(delay * AV_TIME_BASE);
+  }
 }
 
 void FFmpegPlayer::doVideoDisplay() {
@@ -990,9 +1022,22 @@ void FFmpegPlayer::doVideoDisplay() {
       }
     } while (0);
 
-    // if (is_streaming_ && config_.common.save_while_playing) {
-      
-    // } 
+    if (is_streaming_ && config_.common.save_while_playing) {
+      if (!writer_) {
+        writer_.reset(new AVWriter());
+      }
+      if (!writer_->isOpening()) {
+        AVWriter::AVContextGroup group;
+        group.is_video = config_.isEnableVideo();
+        group.stream = video_stream_;
+        group.stream_index = video_stream_index_;
+        group.codec_context = video_codec_context_;
+        group.format_context = format_context_;
+
+        writer_->open(config_.common.save_file, group, {});
+      }
+      writer_->write(pOutFrame);
+    } 
 
     av_freep(pOutFrame->data);
     doVideoDelay();

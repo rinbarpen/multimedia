@@ -23,11 +23,14 @@ int main(int argc, char *argv[]) {
 
   ffinit();
 
+  av_log_set_level(AV_LOG_QUIET);
+
   DeviceConfig dconfig;
-  dconfig.grabber.draw_mouse = 1;
+  dconfig.grabber.draw_mouse = 0;
   dconfig.is_camera = true;
   MediaSource cameraGarb = {"video=USB2.0 HD UVC WebCam", "dshow", dconfig};
   MediaSource desktopGarb = {"desktop", "gdigrab", dconfig};
+  MediaSource chromeGarb = {"video=chrome.exe", "gdigrab", dconfig};
 
   MediaList list;
 //  list.add(MediaSource{"/home/youmu/Desktop/227.mp4"});
@@ -58,9 +61,13 @@ int main(int argc, char *argv[]) {
   FFmpegPlayer::is_native_mode = true;
   FFmpegPlayer player(AudioDevice::SDL, VideoDevice::SDL);
   list.setListLoop(true);
-  config.common.save_while_playing = true;
+  //config.common.save_while_playing = true;
+  config.common.track_mode = true;
+  config.common.save_file = "screen-capture.mp4";
   player.init(config);
-  player.play(list);
+  //player.play(list);
+  
+  player.play(desktopGarb);
   //player.play(cameraGarb);
   return 0;
 }
