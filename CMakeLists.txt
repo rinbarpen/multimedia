@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-project("multimedia" VERSION 0.4 LANGUAGES C CXX)
+project("multimedia" VERSION 0.8 LANGUAGES C CXX)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Debug")
@@ -18,16 +18,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}"
 
 # ######################################## Requirments Begin ########################################
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/yaml-cpp")
-# include_directories("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/yaml-cpp/include")
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/fmt")
-# include_directories("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/fmt/include") 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/googletest")
-# include_directories("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/googletest/googletest/include")
-# include_directories("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/googletest/googlemock/include")
-# add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/jsoncpp")
-# include_directories("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/jsoncpp/include")
-# add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/glfw")
-# include_directories("3rdparty/glfw/include")
 # ######################################## Requirments End   ########################################
 
 # ######################################## Library Begin ############################################
@@ -84,6 +76,7 @@ file(GLOB
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/recorder/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/device/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/filter/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/multimedia/common/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/filter/*.hpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/include/multimedia/recorder/*.hpp"
